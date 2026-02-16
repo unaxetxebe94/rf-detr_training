@@ -1,0 +1,6 @@
+# Archivos de VSCode
+.vs
+.vscode
+
+# Datos
+data/*

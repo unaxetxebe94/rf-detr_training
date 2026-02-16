@@ -1,0 +1,18 @@
+model:
+  nano
+
+train:
+  lr: 0.0001  # 1e-4
+  lr_encoder: 0.00015  # 1.5e-4
+  batch_size: 4
+  grad_accum_steps: 4
+  epochs: 100
+  dataset_dir: data/damage-detection
+  output_dir: trainings/damage-detection
+  weight_decay: 1e-4
+  tensorboard: True
+  wandb: True
+  mlflow: True
+  clearml: False
+  run_test: True
+  eval_max_dets: 500
