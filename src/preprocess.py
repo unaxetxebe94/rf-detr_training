@@ -2,17 +2,20 @@ import os
 import yaml
 import json
 from pathlib import Path
+from src.utils import set_seed
 
 # Obtenemos el nombre del dataset de entrenamiento
 with open("params.yaml") as f:
     params = yaml.safe_load(f)
+set_seed(params["seed"])
+
 task_name = params["task-name"]
 dataset_train_path = Path("data", task_name, "train")
 
 
 # Obtenemos los gts del entrenamiento para obtener las categorÃ­as
 annotations_path = Path(dataset_train_path, "_annotations.coco.json")
-with open(annotations_path, mode="r"):
+with open(annotations_path, mode="r") as f:
     coco = json.load(f)
 categories = coco["categories"]
 output = {}

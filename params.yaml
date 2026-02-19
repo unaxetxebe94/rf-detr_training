@@ -1,5 +1,5 @@
 task-name: damage-detection
-model: nano
+model-type: nano
 
 train:
   lr: 0.0001

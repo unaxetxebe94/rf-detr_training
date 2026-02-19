@@ -3,14 +3,16 @@ from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 import yaml
 from pathlib import Path
 from datetime import datetime
+from src.utils import set_seed
 
 if __name__ == "__main__":
     # 1. Carga segura
     with open("params.yaml") as f:
         params = yaml.safe_load(f)
+    set_seed(params["seed"])
 
     tp = params["train"]
-    model_type = params["model"]
+    model_type = params["model-type"]
 
     # Accedemos a las rutas desde 'tp'
     now = datetime.now().timestamp()

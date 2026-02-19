@@ -3,15 +3,17 @@ import yaml
 import json
 import wandb
 from pathlib import Path
+from src.utils import set_seed
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 
 # Leer el yaml de parÃ¡metros para saber a que run pertenece en entrenamiento
 with open("params.yaml") as f:
     config = yaml.safe_load(f)
+set_seed(config["seed"])
 
 run_name_path = Path("trainings", config["task-name"], ...)
 
-run = wandb.init(project="rf-detr", job_type="testing", name=f"test_{config["run_name"]}")
+run = wandb.init(project="rf-detr", job_type="testing", name=run_name_path)
 
 models = {
         "nano": RFDETRNano,
@@ -19,17 +21,17 @@ models = {
         "medium": RFDETRMedium,
         "large": RFDETRLarge
     }
-model = models[str.lower(config["model_type"])](pretrain_weights=f"trainings/{config["task-name"]}/checkpoint_best_total.pth")
+model = models[str.lower(config["model-type"])](pretrain_weights=f"trainings/{config["task-name"]}/checkpoint_best_total.pth")
 
 category_map_path = Path("data", config["task-name"], "category_map.json")
 with open(category_map_path, mode="r") as f:
     category_map = json.load(f)
 
 # Obtenemos las imÃ¡genes del test para ver las predicciones
-files_in_test_dir = os.listdir(Path("data", config["task-name"]))
+files_in_test_dir = os.listdir(Path("data", config["task-name"], "test"))
 images_to_test = []
 for file in files_in_test_dir:
-    if file.endswith(".jpg", ".jpeg", ".png", ".webp", ".tiff"):
+    if file.endswith((".jpg", ".jpeg", ".png", ".webp", ".tiff")):
         images_to_test.append(file)
 
 # Hacemos las predicciones y evaluÃ¡mos el modelo
@@ -51,3 +53,7 @@ for img_path in images_to_test:
         }
     })
     log_list.append(img_log)
+
+# Subimos los logs a los servidores de W&B
+wandb.log({"test_predictions": log_list})
+wandb.finish()

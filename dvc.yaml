@@ -28,6 +28,6 @@ stages:
       - src/test.py
       - trainings/${task-name}
       - data/${task-name}/category_map.json
-      - run_info.json
+      - trainings/${task-name}/run_info.json
     params:
       - task-name
