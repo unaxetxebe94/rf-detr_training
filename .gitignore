@@ -3,4 +3,15 @@
 .vscode
 
 # Datos
-data/*
+data/damage-detection
+
+# Entrenamientos y evaluaciones
+trainings
+evaluations
+
+# Redes neuronales
+*.pth
+*.pt
+*.engine
+*.plan
+*.onnx
