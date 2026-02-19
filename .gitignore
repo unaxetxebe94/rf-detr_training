@@ -15,3 +15,6 @@ evaluations
 *.engine
 *.plan
 *.onnx
+
+# Archivos relacionados con python
+__pycache__

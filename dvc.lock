@@ -1,0 +1,24 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: conda run -n rf-detr python src/preprocess.py
+    deps:
+    - path: data/damage-detection/train/_annotations.coco.json
+      hash: md5
+      md5: d3e7c2a678f0f2b1c91268093bc19394
+      size: 390307
+    - path: params.yaml
+      hash: md5
+      md5: 6aaa09988167f6f972b3e74008383599
+      size: 310
+    - path: src/preprocess.py
+      hash: md5
+      md5: bc652235e4113eb82522b0a94f6a42d0
+      size: 945
+    outs:
+    - path: data/damage-detection/category_map.json
+      hash: md5
+      md5: 75469368d7b92d63f1a8a374b9ed49eb
+      size: 52
+  wandb-login:
+    cmd: wandb login

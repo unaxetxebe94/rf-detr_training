@@ -3,7 +3,7 @@ import yaml
 import json
 import wandb
 from pathlib import Path
-from src.utils import set_seed
+from utils import set_seed
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 
 # Leer el yaml de parÃ¡metros para saber a que run pertenece en entrenamiento
@@ -11,7 +11,7 @@ with open("params.yaml") as f:
     config = yaml.safe_load(f)
 set_seed(config["seed"])
 
-run_name_path = Path("trainings", config["task-name"], ...)
+run_name_path = Path("trainings", config["task-name"], "run_info.json")
 
 run = wandb.init(project="rf-detr", job_type="testing", name=run_name_path)
 

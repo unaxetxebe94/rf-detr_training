@@ -1,11 +1,15 @@
 # train.py
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 import yaml
+import logging
 from pathlib import Path
 from datetime import datetime
-from src.utils import set_seed
+from utils import set_seed
+from logger import get_logger
 
 if __name__ == "__main__":
+    logger = get_logger(__name__, level=logging.DEBUG)
+
     # 1. Carga segura
     with open("params.yaml") as f:
         params = yaml.safe_load(f)
@@ -28,6 +32,7 @@ if __name__ == "__main__":
         "large": RFDETRLarge
     }
     model = models[str.lower(model_type)]()
+    logger.debug(f"Se ha iniciado un modelo {model_type}")
 
     # 2. Entrenamiento con las llaves corregidas
     model.train(
@@ -36,8 +41,8 @@ if __name__ == "__main__":
         batch_size = tp["batch_size"],
         grad_accum_steps = tp["grad_accum_steps"],
         epochs = tp["epochs"],           
-        dataset_dir = dataset_dir,
-        output_dir = output_dir,
+        dataset_dir = str(dataset_dir),
+        output_dir = str(output_dir),
         weight_decay = tp["weight_decay"],
         tensorboard = tp["tensorboard"],
         wandb = tp["wandb"],
@@ -48,9 +53,12 @@ if __name__ == "__main__":
         run_test = tp["run_test"],
         eval_max_dets = tp["eval_max_dets"] 
     )
+    logger.info("Se ha entrenado el modelo")
 
     # Guardamos el nombre del run para el test
     import json
     run_name_path = Path(output_dir, "run_info.json")
     with open(run_name_path, "w") as f:
         json.dump({"run_name": run}, f)
+    logger.info("Se ha escrito run_info")
+    

@@ -1,6 +1,8 @@
 stages:
+  wandb-login:
+    cmd: wandb login
   preprocess:
-    cmd: conda run -n web2 python src/preprocess.py
+    cmd: conda run -n rf-detr python src/preprocess.py
     deps:
       - src/preprocess.py
       - data/${task-name}/train/_annotations.coco.json
@@ -9,21 +11,21 @@ stages:
       - data/${task-name}/category_map.json
 
   train:
-    cmd: conda run -n web2 python src/train.py
+    cmd: conda run -n rf-detr python src/train.py
     deps:
       - src/train.py
       - data/${task-name}
       - params.yaml
     params:
       - train
-      - model
+      - model-type
     outs:
       - trainings/${task-name}: # Carpeta de salida
           cache: true
       - run_info.json # Guardamos aquÃ­ el ID del run, no en params.yaml
 
   test:
-    cmd: conda run -n web2 python src/test.py
+    cmd: conda run -n rf-detr python src/test.py
     deps:
       - src/test.py
       - trainings/${task-name}

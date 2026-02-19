@@ -1,8 +1,15 @@
 import os
 import yaml
 import json
+import logging
 from pathlib import Path
-from src.utils import set_seed
+from utils import set_seed
+
+from logger import get_logger
+
+logger = get_logger(__name__, level=logging.DEBUG)
+
+logger.info("=======================================HA COMENZADO EL PIPELINE=======================================")
 
 # Obtenemos el nombre del dataset de entrenamiento
 with open("params.yaml") as f:
@@ -31,3 +38,5 @@ for cat in categories:
 output_path = Path("data", task_name, "category_map.json")
 with open(output_path, mode="w") as f:
     json.dump(output, f)
+
+logger.debug("Se ha terminado el preprocesado")
