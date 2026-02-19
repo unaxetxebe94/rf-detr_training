@@ -22,7 +22,7 @@ stages:
     outs:
       - trainings/${task-name}: # Carpeta de salida
           cache: true
-      - run_info.json # Guardamos aquÃ­ el ID del run, no en params.yaml
+      - trainings/${task-name}/run_info.json
 
   test:
     cmd: conda run -n rf-detr python src/test.py
