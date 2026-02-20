@@ -8,7 +8,7 @@ stages:
       - data/${task-name}/train/_annotations.coco.json
       - params.yaml
     outs:
-      - data/${task-name}/category_map.json
+      - data/temp/category_map.json
 
   train:
     cmd: conda run -n rf-detr python src/train.py
@@ -22,15 +22,15 @@ stages:
     outs:
       - trainings/${task-name}:  # Carpeta de salida
           cache: true
-      # - trainings/${task-name}/run_info.json
-      # - trainings/${task-name}/results.json
+      - trainings/temp/run_info.json
+      - trainings/temp/results.json
 
   test:
     cmd: conda run -n rf-detr python src/test.py
     deps:
       - src/test.py
       - trainings/${task-name}
-      - data/${task-name}/category_map.json
-      - trainings/${task-name}/run_info.json
+      - data/temp/category_map.json
+      - trainings/temp/run_info.json
     params:
       - task-name

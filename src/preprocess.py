@@ -35,7 +35,7 @@ for cat in categories:
 
 
 # Escribimos el mapeo en disco para luego poder leerlo desde el test
-output_path = Path("data", task_name, "category_map.json")
+output_path = Path("data", "temp", "category_map.json")
 with open(output_path, mode="w") as f:
     json.dump(output, f)
 

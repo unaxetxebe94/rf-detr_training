@@ -2,9 +2,6 @@
 .vs
 .vscode
 
-# Datos
-data/
-
 # Entrenamientos y evaluaciones
 trainings/
 evaluations/

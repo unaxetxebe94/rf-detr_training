@@ -14,7 +14,7 @@ with open("params.yaml") as f:
     config = yaml.safe_load(f)
 set_seed(config["seed"])
 
-run_name_path = Path("trainings", config["task-name"], "run_info.json")
+run_name_path = Path("trainings", "temp", "run_info.json")
 with open(run_name_path, mode="r") as f:
     run_name = json.load(f)["run_name"]
 
@@ -33,6 +33,7 @@ else:
 
 run = wandb.init(project="rf-detr", job_type="testing", name=run_name)
 
+# Inicializamos el modelo
 models = {
         "nano": RFDETRNano,
         "small": RFDETRSmall,
@@ -41,7 +42,8 @@ models = {
     }
 model = models[str.lower(config["model-type"])](pretrain_weights=f"trainings/{config['task-name']}/checkpoint_best_total.pth")
 
-category_map_path = Path("data", config["task-name"], "category_map.json")
+# Obtenemos category_map
+category_map_path = Path("data", "temp", "category_map.json")
 with open(category_map_path, mode="r") as f:
     category_map_ = json.load(f)
 category_map = {int(id): cat for id, cat in category_map_.items()}
@@ -134,3 +136,6 @@ for img_path in images_to_test:
 # Subimos (puedes hacer primero con una sola imagen para debug)
 wandb.log({"test_predictions": log_list})
 wandb.finish()
+
+# Eliminamos la carpeta temp
+os.remove("data/temp")
