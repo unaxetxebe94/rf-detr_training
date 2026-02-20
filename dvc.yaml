@@ -20,9 +20,10 @@ stages:
       - train
       - model-type
     outs:
-      - trainings/${task-name}: # Carpeta de salida
+      - trainings/${task-name}:  # Carpeta de salida
           cache: true
-      - trainings/${task-name}/run_info.json
+      # - trainings/${task-name}/run_info.json
+      # - trainings/${task-name}/results.json
 
   test:
     cmd: conda run -n rf-detr python src/test.py

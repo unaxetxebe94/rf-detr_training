@@ -3,11 +3,15 @@
 .vscode
 
 # Datos
-data/damage-detection
+data/
 
 # Entrenamientos y evaluaciones
-trainings
-evaluations
+trainings/
+evaluations/
+
+# logs
+logs/
+wandb/
 
 # Redes neuronales
 *.pth

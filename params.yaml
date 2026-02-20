@@ -5,9 +5,9 @@ seed: 42
 train:
   lr: 0.0001
   lr_encoder: 0.00015
-  batch_size: 4
-  grad_accum_steps: 4
-  epochs: 11
+  batch_size: 16
+  grad_accum_steps: 2
+  epochs: 3
   weight_decay: 1e-4
   tensorboard: true
   wandb: true
