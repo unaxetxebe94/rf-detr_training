@@ -18,6 +18,19 @@ run_name_path = Path("trainings", config["task-name"], "run_info.json")
 with open(run_name_path, mode="r") as f:
     run_name = json.load(f)["run_name"]
 
+# Sincronizamos el run de entrenamiento con el de test
+api = wandb.Api()
+runs = api.runs(f"unaxetxebe94-upv-ehu/{config['train']['project']}", {"filters": {"name": run_name}})
+
+if runs:
+    try:
+        run_id = runs[0].id
+        run = wandb.init(project=config['train']['project'], id=run_id, resume="must", job_type="test")
+    except Exception as e:
+        raise e("Error conectandose al run de entrenamiento desde el test:", e)
+else:
+    raise ValueError("No se encontró un run con ese nombre")
+
 run = wandb.init(project="rf-detr", job_type="testing", name=run_name)
 
 models = {
