@@ -1,28 +1,24 @@
 stages:
-  wandb-login:
-    cmd: wandb login
   preprocess:
     cmd: conda run -n rf-detr python src/preprocess.py
     deps:
       - src/preprocess.py
       - data/${task-name}/train/_annotations.coco.json
-      - params.yaml
-    outs:
-      - data/temp/category_map.json
 
   train:
     cmd: conda run -n rf-detr python src/train.py
     deps:
       - src/train.py
-      - data/${task-name}
+      - data/${task-name}/train
       - params.yaml
     params:
       - train
+      - task-name
       - model-type
+      - seed
     outs:
       - trainings/${task-name}:  # Carpeta de salida
           cache: true
-      - trainings/temp/run_info.json
       - trainings/temp/results.json
 
   test:
