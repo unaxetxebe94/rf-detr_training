@@ -1,10 +1,15 @@
-task-name: damage-detection
+task-name: prueba
 model-type: nano
 seed: 42
 
 preprocess:
-  resize: 1
+  resize: 0.5
   apply-roi: false
+  train-ratio: 0.7
+  test-ratio: 0.15
+  val-ratio: 0.15
+  augmentations-per-image: 3
+  max-transforms-per-sample: 4
 
 train:
   lr: 0.0001

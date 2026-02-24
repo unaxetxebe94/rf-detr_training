@@ -1,6 +1,7 @@
 import os
 import re
 import yaml
+import json
 import shutil
 import numpy as np
 import cv2
@@ -13,7 +14,7 @@ from shapely.geometry.base import BaseGeometry
 import logging
 from logger import get_logger
 from pathlib import Path
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class TileCreator:
     def __init__(
@@ -71,13 +72,13 @@ class TileCreator:
 
         return []
 
-    def segmentation_to_bbox(segs: list) -> list[float]:
+    def segmentation_to_bbox(self, segs: list) -> list[float]:
         if not segs:
             return [0.0, 0.0, 0.0, 0.0]
 
         arr = np.array([coord for seg in segs for coord in seg])
         x, y = arr[0::2], arr[1::2]
-        return [float(x.min()), float(y.min()), float(x.ptp()), float(y.ptp())]
+        return [float(x.min()), float(y.min()), float(np.ptp(x)), float(np.ptp(y))]
 
     # ------------------------------------------------------------------ #
     # Filename helpers
@@ -271,6 +272,65 @@ class TileCreator:
 
         return new_images, new_annotations, curr_img_id, curr_ann_id
     
+    def run(self) -> None:
+        """
+        Itera sobre todas las imágenes y ejecuta el tiling en paralelo.
+        """
+        with open(Path(self.in_dir_path) / "_annotations.coco.json", mode="r") as f:
+            anns = json.load(f)
+
+        images_info = anns.get("images", [])
+
+        # Si no pasamos diccionario COCO, leemos directamente el directorio
+        if not images_info:
+            valid_exts = {'.png', '.jpg', '.jpeg', '.tif', '.tiff'}
+            for idx, fname in enumerate(os.listdir(self.in_dir_path)):
+                if Path(fname).suffix.lower() in valid_exts:
+                    images_info.append({"id": idx, "file_name": fname})     
+        final_images = []
+        final_annotations = []
+        global_img_id = 1
+        global_ann_id = 1       
+        self.logger.info(f"Iniciando procesado de {len(images_info)} imágenes con {self.n_jobs} hilos...")      
+        with ThreadPoolExecutor(max_workers=self.n_jobs) as executor:
+            # Lanzamos la ejecución en paralelo. 
+            # Pasamos start_img_id=1 y start_ann_id=1 a todos los workers.
+            futures = [
+                executor.submit(self.process_image_dzsave, img_info, anns, 1, 1)
+                for img_info in images_info
+            ]       
+            for future in as_completed(futures):
+                try:
+                    new_imgs, new_anns, _, _ = future.result()
+
+                    # Remapeamos los IDs localmente para mantener la consistencia global
+                    local_img_map = {}
+                    for img in new_imgs:
+                        local_img_map[img["id"]] = global_img_id
+                        img["id"] = global_img_id
+                        final_images.append(img)
+                        global_img_id += 1
+
+                    for ann in new_anns:
+                        ann["id"] = global_ann_id
+                        ann["image_id"] = local_img_map[ann["image_id"]]
+                        final_annotations.append(ann)
+                        global_ann_id += 1
+
+                except Exception as e:
+                    self.logger.error(f"Error procesando una imagen en el worker: {e}")     
+        self.logger.info("Procesado completado.")
+
+        # Devolvemos la estructura compatible con COCO
+        final_dict = {
+            "images": final_images,
+            "annotations": final_annotations,
+            "categories": anns.get("categories", [])
+        }
+
+        os.makedirs(self.out_dir_path, exist_ok=True)
+        with open(Path(self.out_dir_path, "_annotations.coco.json"), mode="w") as f:
+            json.dump(final_dict, f)    
 
 # ------------------------------------------------------------------ #
 # Core tile processing

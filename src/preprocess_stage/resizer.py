@@ -138,6 +138,7 @@ class Resizer:
                         self.logger.error(f"{fname}: {exc}")
                         result_images[idx] = images[idx]
                         result_anns[idx] = id_to_anns.get(images[idx]["id"], [])
+                        raise exc
                     pbar.update(1)
 
         flat_anns = [ann for sublist in result_anns for ann in sublist]
@@ -171,15 +172,20 @@ class Resizer:
 
         resized = image.resize(self.resize_factor)
 
-        resized.write_to_file(
-            str(dst_path),
-            compression="lzw",
-            predictor="horizontal",
-            tile=True,
-            tile_width=256,
-            tile_height=256,
-            pyramid=False,
-        )
+        if str(dst_path).endswith((".tiff", ".TIFF")):
+            resized.write_to_file(
+                str(dst_path),
+                compression="lzw",
+                predictor="horizontal",
+                tile=True,
+                tile_width=256,
+                tile_height=256,
+                pyramid=False,
+            )
+        else:
+            resized.write_to_file(
+                str(dst_path),
+            )
 
         new_info = copy.copy(img_info)
         new_info["width"] = resized.width
