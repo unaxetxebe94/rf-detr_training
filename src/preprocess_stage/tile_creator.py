@@ -16,6 +16,7 @@ from logger import get_logger
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
 class TileCreator:
     def __init__(
         self,
@@ -99,9 +100,8 @@ class TileCreator:
     def _build_geometry_index(
         self, img_anns: list
     ) -> tuple[list, list, STRtree | None]:
-        """Build STRtree index from COCO annotations. Returns (geometries, ann_map, tree)."""
         geometries = []
-        ann_map = []  # parallel list: ann_map[i] is the annotation for geometries[i]
+        ann_map = []
 
         for ann in img_anns:
             polys = self._segmentation_to_polygons(ann.get("segmentation"))
@@ -130,7 +130,6 @@ class TileCreator:
         ann_map: list,
         tree: STRtree,
     ) -> tuple[list[dict], int]:
-        """Compute clipped COCO annotations that overlap with a tile."""
         tile_box = shapely_box(tile_x, tile_y, tile_x + tile_w, tile_y + tile_h)
         new_anns = []
 
@@ -174,7 +173,7 @@ class TileCreator:
     # Core tile processing
     # ------------------------------------------------------------------ #
 
-    def process_image_dzsave(
+    def process_image(
         self, img_info: dict, anns: dict, start_img_id: int, start_ann_id: int
     ) -> tuple[list, list, int, int]:
         img_name = img_info["file_name"]
@@ -184,69 +183,63 @@ class TileCreator:
             return [], [], start_img_id, start_ann_id
 
         try:
+            # access="random" es clave: permite crops eficientes sin cargar
+            # la imagen entera en RAM, pyvips la decodifica por regiones bajo demanda.
             img = pyvips.Image.new_from_file(img_path, access="random")
         except Exception as e:
             self.logger.warning(f"Cannot open {img_path}: {e}")
             return [], [], start_img_id, start_ann_id
 
-        # Build annotation index (no ROI offset needed)
+        img_w, img_h = img.width, img.height
+        base_name = os.path.splitext(img_name)[0]
+
+        # Construimos el índice espacial una sola vez por imagen
         img_id = img_info.get("id")
         img_anns = [a for a in anns.get("annotations", []) if a.get("image_id") == img_id]
         geometries, ann_map, tree = self._build_geometry_index(img_anns)
 
-        # Generate tiles via dzsave
-        base_name = os.path.splitext(img_name)[0]
-        temp_dir = os.path.join(self.out_dir_path, f"_temp_dzi_{base_name}")
-        os.makedirs(temp_dir, exist_ok=True)
-        dzi_base = os.path.join(temp_dir, "tiles")
+        # Si la imagen no tiene anotaciones no hay nada que guardar
+        if not tree:
+            self.logger.info(f"Sin anotaciones para {img_name}, se omite.")
+            return [], [], start_img_id, start_ann_id
 
-        try:
-            img.dzsave(
-                dzi_base,
-                tile_size=self.tile_size,
-                suffix=".png",
-                overlap=0,
-                depth="one",
-            )
+        new_images, new_annotations = [], []
+        curr_img_id = start_img_id
+        curr_ann_id = start_ann_id
 
-            tiles_dir = f"{dzi_base}_files/0"
-            if not os.path.exists(tiles_dir):
-                self.logger.warning(f"No tiles generated for {img_name}")
-                return [], [], start_img_id, start_ann_id
+        for tile_y in range(0, img_h, self.tile_size):
+            for tile_x in range(0, img_w, self.tile_size):
+                tile_w = min(self.tile_size, img_w - tile_x)
+                tile_h = min(self.tile_size, img_h - tile_y)
 
-            new_images, new_annotations = [], []
-            curr_img_id = start_img_id
-            curr_ann_id = start_ann_id
+                # ── 1. Calcular anotaciones ANTES de tocar el disco ──────────
+                tile_anns, next_ann_id = self._calculate_overlap(
+                    tile_x, tile_y, tile_w, tile_h,
+                    curr_img_id, curr_ann_id,
+                    geometries, ann_map, tree,
+                )
 
-            tile_files = sorted(
-                f for f in os.listdir(tiles_dir) if f.endswith(".png")
-            )
-
-            for tile_file in tile_files:
-                match = re.match(r"(\d+)_(\d+)\.png$", tile_file)
-                if not match:
-                    self.logger.warning(f"Tile {tile_file} con nombre inesperado")
+                # Si el tile no tiene anotaciones, lo saltamos completamente
+                if not tile_anns:
                     continue
 
-                # dzsave names tiles as col_row, so x = col * tile_size, y = row * tile_size
-                tile_x = int(match.group(1)) * self.tile_size
-                tile_y = int(match.group(2)) * self.tile_size
-                tile_path = os.path.join(tiles_dir, tile_file)
-
-                # Skip near-black tiles
-                try:
-                    tile_vips = pyvips.Image.new_from_file(tile_path)
-                    if tile_vips.avg() < self.black_threshold:
-                        os.remove(tile_path)
-                        continue
-                    tile_w, tile_h = tile_vips.width, tile_vips.height
-                except Exception:
-                    continue
-
-                # Move to output before building the record
+                # ── 2. Solo ahora extraemos el tile de la imagen grande ──────
                 final_tile_name = f"{base_name}_tile_{tile_x}_{tile_y}.png"
                 final_tile_path = os.path.join(self.out_dir_path, final_tile_name)
-                shutil.move(tile_path, final_tile_path)
+
+                try:
+                    tile_img = img.crop(tile_x, tile_y, tile_w, tile_h)
+
+                    # Descartamos tiles casi negros (artefactos de borde, etc.)
+                    if tile_img.avg() < self.black_threshold:
+                        continue
+
+                    tile_img.write_to_file(final_tile_path)
+                except Exception as e:
+                    self.logger.warning(
+                        f"Error al extraer tile ({tile_x},{tile_y}) de {img_name}: {e}"
+                    )
+                    continue
 
                 new_images.append(
                     {
@@ -256,22 +249,12 @@ class TileCreator:
                         "height": tile_h,
                     }
                 )
-
-                if tree:
-                    tile_anns, curr_ann_id = self._calculate_overlap(
-                        tile_x, tile_y, tile_w, tile_h,
-                        curr_img_id, curr_ann_id,
-                        geometries, ann_map, tree,
-                    )
-                    new_annotations.extend(tile_anns)
-
+                new_annotations.extend(tile_anns)
+                curr_ann_id = next_ann_id
                 curr_img_id += 1
 
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
         return new_images, new_annotations, curr_img_id, curr_ann_id
-    
+
     def run(self) -> None:
         """
         Itera sobre todas las imágenes y ejecuta el tiling en paralelo.
@@ -281,29 +264,34 @@ class TileCreator:
 
         images_info = anns.get("images", [])
 
-        # Si no pasamos diccionario COCO, leemos directamente el directorio
         if not images_info:
             valid_exts = {'.png', '.jpg', '.jpeg', '.tif', '.tiff'}
             for idx, fname in enumerate(os.listdir(self.in_dir_path)):
                 if Path(fname).suffix.lower() in valid_exts:
-                    images_info.append({"id": idx, "file_name": fname})     
+                    images_info.append({"id": idx, "file_name": fname})
+
         final_images = []
         final_annotations = []
         global_img_id = 1
-        global_ann_id = 1       
-        self.logger.info(f"Iniciando procesado de {len(images_info)} imágenes con {self.n_jobs} hilos...")      
+        global_ann_id = 1
+
+        self.logger.info(
+            f"Iniciando procesado de {len(images_info)} imágenes con {self.n_jobs} hilos..."
+        )
+
+        os.makedirs(self.out_dir_path, exist_ok=True)
+
         with ThreadPoolExecutor(max_workers=self.n_jobs) as executor:
-            # Lanzamos la ejecución en paralelo. 
-            # Pasamos start_img_id=1 y start_ann_id=1 a todos los workers.
             futures = [
-                executor.submit(self.process_image_dzsave, img_info, anns, 1, 1)
+                executor.submit(self.process_image, img_info, anns, 1, 1)
                 for img_info in images_info
-            ]       
+            ]
+
             for future in as_completed(futures):
                 try:
                     new_imgs, new_anns, _, _ = future.result()
 
-                    # Remapeamos los IDs localmente para mantener la consistencia global
+                    # Remapeamos IDs locales → globales
                     local_img_map = {}
                     for img in new_imgs:
                         local_img_map[img["id"]] = global_img_id
@@ -317,50 +305,41 @@ class TileCreator:
                         final_annotations.append(ann)
                         global_ann_id += 1
 
-                    ann_image_ids = {ann["image_id"] for ann in final_annotations}
-                    images_to_remove = [img for img in final_images if img["id"] not in ann_image_ids]
-
-                    for img in images_to_remove:
-                        tile_path = os.path.join(self.out_dir_path, img["file_name"])
-                        if os.path.exists(tile_path):
-                            os.remove(tile_path)
-                    final_images = [img for img in final_images if img["id"] in ann_image_ids]
-
                 except Exception as e:
-                    self.logger.error(f"Error procesando una imagen en el worker: {e}")     
+                    self.logger.error(f"Error procesando una imagen en el worker: {e}")
+
         self.logger.info("Procesado completado.")
 
-        # Devolvemos la estructura compatible con COCO
         final_dict = {
             "images": final_images,
             "annotations": final_annotations,
-            "categories": anns.get("categories", [])
+            "categories": anns.get("categories", []),
         }
 
-        os.makedirs(self.out_dir_path, exist_ok=True)
-        with open(Path(self.out_dir_path, "_annotations.coco.json"), mode="w") as f:
-            json.dump(final_dict, f)    
+        with open(Path(self.out_dir_path) / "_annotations.coco.json", mode="w") as f:
+            json.dump(final_dict, f)
+
 
 # ------------------------------------------------------------------ #
-# Core tile processing
+# Entry point
 # ------------------------------------------------------------------ #
 if __name__ == "__main__":
     img_dir_path = Path("data", "jeld-wen-prueba")
 
-    # Leemos params.yaml
     with open(Path("..", "..", "params.yaml"), mode="r") as f:
         params = yaml.safe_load(f)
-    model_type = params["model-type"].lower()    
+    model_type = params["model-type"].lower()
 
     tile_size_mapper = {
         "nano": 384,
         "small": 512,
         "medium": 576,
-        "large": 704
+        "large": 704,
     }
 
     tile_creator = TileCreator(
         in_dir_path=str(img_dir_path),
         out_dir_path=str(Path(img_dir_path, "formatted")),
-        tile_size=tile_size_mapper[model_type]
+        tile_size=tile_size_mapper[model_type],
     )
+    tile_creator.run()

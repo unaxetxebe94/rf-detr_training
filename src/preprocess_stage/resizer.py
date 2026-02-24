@@ -68,7 +68,7 @@ class Resizer:
         self.num_workers = num_workers
         self.logger = get_logger(__name__, level=logging.DEBUG)
 
-        self.output_folder.mkdir(parents=True, exist_ok=True)
+        if resize_factor != 1.0: self.output_folder.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Public API
