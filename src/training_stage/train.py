@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     # Guardamos el nombre del run para el test
     import json
-    run_name_path = Path(output_dir.parent, "run_info.json")
+    run_name_path = Path(output_dir.parent, "temp", "run_info.json")
     with open(run_name_path, "w") as f:
         json.dump({"run_name": run}, f)
     logger.info("Se ha escrito run_info")

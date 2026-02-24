@@ -3,7 +3,7 @@ model-type: nano
 seed: 42
 
 preprocess:
-  resize: 1.0
+  resize: 0.5
   apply-roi: false
   train-ratio: 0.7
   test-ratio: 0.15

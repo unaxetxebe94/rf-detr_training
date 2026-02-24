@@ -1,6 +1,7 @@
 
 import os
 import yaml
+import shutil
 import json
 import wandb
 import numpy as np
@@ -27,11 +28,9 @@ if runs:
         run_id = runs[0].id
         run = wandb.init(project=config['train']['project'], id=run_id, resume="must", job_type="test")
     except Exception as e:
-        raise e("Error conectandose al run de entrenamiento desde el test:", e)
+        raise Exception("Error conectandose al run de entrenamiento desde el test:", e)
 else:
     raise ValueError("No se encontró un run con ese nombre")
-
-run = wandb.init(project="rf-detr", job_type="testing", name=run_name)
 
 # Inicializamos el modelo
 models = {
@@ -138,4 +137,4 @@ wandb.log({"test_predictions": log_list})
 wandb.finish()
 
 # Eliminamos la carpeta temp
-os.remove("data/temp")
+shutil.rmtree("data/temp")
