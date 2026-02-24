@@ -317,6 +317,15 @@ class TileCreator:
                         final_annotations.append(ann)
                         global_ann_id += 1
 
+                    ann_image_ids = {ann["image_id"] for ann in final_annotations}
+                    images_to_remove = [img for img in final_images if img["id"] not in ann_image_ids]
+
+                    for img in images_to_remove:
+                        tile_path = os.path.join(self.out_dir_path, img["file_name"])
+                        if os.path.exists(tile_path):
+                            os.remove(tile_path)
+                    final_images = [img for img in final_images if img["id"] in ann_image_ids]
+
                 except Exception as e:
                     self.logger.error(f"Error procesando una imagen en el worker: {e}")     
         self.logger.info("Procesado completado.")
