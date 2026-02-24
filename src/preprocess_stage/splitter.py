@@ -27,6 +27,7 @@ Uso:
 
 from __future__ import annotations
 
+import os
 import json
 import yaml
 import logging
@@ -168,6 +169,8 @@ class Splitter:
         logger.info("División completada.")
         for name, path in output_paths.items():
             logger.info(f"  [{name:>5}] → {path}")
+
+        os.remove(self.annotations_path)  # Eliminamos las anotaciones previas al split
 
         return output_paths
 

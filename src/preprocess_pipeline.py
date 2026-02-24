@@ -3,6 +3,7 @@ import os
 os.environ["PATH"] = r"C:\Program Files\vips-dev-8.17\bin;" + os.environ["PATH"]
 
 import yaml
+import shutil
 import logging
 from pathlib import Path
 
@@ -74,7 +75,8 @@ if __name__ == "__main__":
     )
 
     # Ejecutamos el pipeline
-    resizer.run()
+    if (resize != 1.0): resizer.run()
     tile_creator.run()
+    if (resize != 1.0): shutil.rmtree(Path("data", task_name, "resized_temporal"))  # Se elimina la carpeta temporal de las imágenes redimensionadas
     splitter.run()
     augmenter.run()
