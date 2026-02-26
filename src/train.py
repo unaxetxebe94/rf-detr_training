@@ -1,4 +1,4 @@
-# train.py
+import os
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 import yaml
 import logging
@@ -58,6 +58,7 @@ if __name__ == "__main__":
     # Guardamos el nombre del run para el test
     import json
     run_name_path = Path(output_dir.parent, "temp", "run_info.json")
+    os.makedirs(run_name_path.parent, exist_ok=True)
     with open(run_name_path, "w") as f:
         json.dump({"run_name": run}, f)
     logger.info("Se ha escrito run_info")

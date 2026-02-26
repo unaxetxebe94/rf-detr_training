@@ -1,6 +1,7 @@
 # Archivos de VSCode
 .vs
 .vscode
+.VSCodeCounter
 
 # Entrenamientos y evaluaciones
 trainings/
