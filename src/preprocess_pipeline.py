@@ -13,12 +13,10 @@ from preprocess_stage.resizer import Resizer
 from preprocess_stage.tile_creator import TileCreator
 from preprocess_stage.splitter import Splitter
 from preprocess_stage.augmenter import Augmenter
+from preprocess_stage.label_corrector import LabelCorrector
 from logger import get_logger
 
 logger = get_logger(__name__, level=logging.DEBUG)
-
-def save_mapping():
-    ...
 
 if __name__ == "__main__":
 
@@ -77,6 +75,9 @@ if __name__ == "__main__":
         max_transforms_per_sample=max_transforms_per_sample,
         seed=seed
     )
+    label_corrector = LabelCorrector(
+        dataset_path=str(Path("data", f"{task_name}_formatted"))
+    )
 
     # Ejecutamos el pipeline
     if (resize != 1.0): resizer.run()
@@ -84,6 +85,7 @@ if __name__ == "__main__":
     if (resize != 1.0): shutil.rmtree(Path("data", f"{task_name}_formatted", "resized_temporal"))  # Se elimina la carpeta temporal de las imágenes redimensionadas
     splitter.run()
     augmenter.run()
+    label_corrector.run()
 
     # Guardamos un mapping de cat_id --> cat_name para el test
     def save_mapping():
