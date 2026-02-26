@@ -14,14 +14,14 @@ stages:
       - seed
       - preprocess
     outs:
-      - data/${task-name}/formatted:
-          cache: true
+      - data/${task-name}_formatted:
+          cache: false
 
   train:
     cmd: conda run -n rf-detr python src/train.py
     deps:
       - src/train.py
-      - data/${task-name}/formatted
+      - data/${task-name}_formatted
       - params.yaml
     params:
       - train
@@ -30,7 +30,7 @@ stages:
       - seed
     outs:
       - trainings/${task-name}:
-          cache: true
+          cache: false
 
   process_results:
     cmd: conda run -n rf-detr python src/process_results.py

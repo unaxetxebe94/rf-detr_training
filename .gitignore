@@ -5,6 +5,8 @@
 # Entrenamientos y evaluaciones
 trainings/
 evaluations/
+data/temp/
+data/*_formatted/
 
 # logs
 logs/

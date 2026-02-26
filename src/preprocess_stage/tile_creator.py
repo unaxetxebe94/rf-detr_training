@@ -339,7 +339,7 @@ if __name__ == "__main__":
 
     tile_creator = TileCreator(
         in_dir_path=str(img_dir_path),
-        out_dir_path=str(Path(img_dir_path, "formatted")),
+        out_dir_path=str(img_dir_path),
         tile_size=tile_size_mapper[model_type],
     )
     tile_creator.run()

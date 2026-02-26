@@ -101,7 +101,7 @@ class Splitter:
         Si False, solo genera los JSONs COCO (más rápido, útil en pruebas).
     """
 
-    SPLITS = ("train", "val", "test")
+    SPLITS = ("train", "valid", "test")
 
     def __init__(
         self,
@@ -126,7 +126,7 @@ class Splitter:
         self._validate_ratios(train_ratio, val_ratio, test_ratio)
         self.ratios = {
             "train": train_ratio,
-            "val": val_ratio,
+            "valid": val_ratio,
             "test": test_ratio,
         }
 
@@ -186,7 +186,7 @@ class Splitter:
                 f"La suma de train+val+test debe ser 1.0, "
                 f"pero se obtuvo {total:.4f}."
             )
-        for name, ratio in [("train", train), ("val", val), ("test", test)]:
+        for name, ratio in [("train", train), ("valid", val), ("test", test)]:
             if not 0 < ratio < 1:
                 raise ValueError(
                     f"El ratio `{name}` debe estar en (0, 1), "
@@ -260,7 +260,7 @@ class Splitter:
           1. Separar (train+val) vs test
           2. Separar train vs val dentro del primer grupo
         """
-        train_val_ratio = self.ratios["train"] + self.ratios["val"]
+        train_val_ratio = self.ratios["train"] + self.ratios["valid"]
         test_ratio = self.ratios["test"]
 
         # Paso 1: (train+val) | test
@@ -284,7 +284,7 @@ class Splitter:
             seed=self.seed + 1,
         )
 
-        return {"train": ids_train, "val": ids_val, "test": ids_test}
+        return {"train": ids_train, "valid": ids_val, "test": ids_test}
 
     # ------------------------------------------------------------------
     # Logging de distribución

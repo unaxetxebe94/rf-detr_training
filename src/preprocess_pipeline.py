@@ -51,19 +51,19 @@ if __name__ == "__main__":
     # Preparamos los tres pasos del pipeline
     resizer = Resizer(
         input_folder=str(Path("data", task_name)),
-        output_folder=str(Path("data", task_name, "resized_temporal")),
+        output_folder=str(Path("data", f"{task_name}_formatted", "resized_temporal")),
         resize_factor=resize,
         apply_roi=apply_roi
     )
     tile_creator = TileCreator(
-        in_dir_path=str(Path("data", task_name)) if resize == 1.0 else str(Path("data", task_name, "resized_temporal")),  # Si no se aplica resize, el input_dir es el directyorio de imágenes original
-        out_dir_path=str(Path("data", task_name, "formatted")),
+        in_dir_path=str(Path("data", task_name)) if resize == 1.0 else str(Path("data", f"{task_name}_formatted", "resized_temporal")),  # Si no se aplica resize, el input_dir es el directyorio de imágenes original
+        out_dir_path=str(Path("data", f"{task_name}_formatted")),
         tile_size=tile_size_mapper[model_type],
         n_jobs=os.cpu_count() // 2
     )
     splitter = Splitter(
-        dataset_dir=str(Path("data", task_name, "formatted")),
-        output_dir=str(Path("data", task_name, "formatted")),
+        dataset_dir=str(Path("data", f"{task_name}_formatted")),
+        output_dir=str(Path("data", f"{task_name}_formatted")),
         train_ratio=train_ratio,
         val_ratio=val_ratio,
         test_ratio=test_ratio,
@@ -71,8 +71,8 @@ if __name__ == "__main__":
         image_action="move"
     )
     augmenter = Augmenter(
-        input_dir=str(Path("data", task_name, "formatted", "train")),
-        output_dir=str(Path("data", task_name, "formatted", "train")),
+        input_dir=str(Path("data", f"{task_name}_formatted", "train")),
+        output_dir=str(Path("data", f"{task_name}_formatted", "train")),
         augmentations_per_image=augmentations_per_image,
         max_transforms_per_sample=max_transforms_per_sample,
         seed=seed
@@ -81,13 +81,13 @@ if __name__ == "__main__":
     # Ejecutamos el pipeline
     if (resize != 1.0): resizer.run()
     tile_creator.run()
-    if (resize != 1.0): shutil.rmtree(Path("data", task_name, "resized_temporal"))  # Se elimina la carpeta temporal de las imágenes redimensionadas
+    if (resize != 1.0): shutil.rmtree(Path("data", f"{task_name}_formatted", "resized_temporal"))  # Se elimina la carpeta temporal de las imágenes redimensionadas
     splitter.run()
     augmenter.run()
 
     # Guardamos un mapping de cat_id --> cat_name para el test
     def save_mapping():
-        dataset_train_path = Path("data", task_name, "train")
+        dataset_train_path = Path("data", f"{task_name}_formatted", "train")
         
         # Obtenemos los gts del entrenamiento para obtener las categorÃ­as
         annotations_path = Path(dataset_train_path, "_annotations.coco.json")
@@ -103,6 +103,7 @@ if __name__ == "__main__":
 
         # Escribimos el mapeo en disco para luego poder leerlo desde el test
         output_path = Path("data", "temp", "category_map.json")
+        os.makedirs(output_path.parent, exist_ok=True)
         with open(output_path, mode="w") as f:
             json.dump(output, f)
 

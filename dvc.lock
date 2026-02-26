@@ -1,0 +1,48 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: conda run -n rf-detr python src/preprocess_pipeline.py
+    deps:
+    - path: data/prueba/_annotations.coco.json
+      hash: md5
+      md5: da2236858c44280ad3db3543fba3212a
+      size: 65202
+    - path: src/preprocess_pipeline.py
+      hash: md5
+      md5: d1835234d561b9ecf4004286fae64295
+      size: 4284
+    - path: src/preprocess_stage/augmenter.py
+      hash: md5
+      md5: 3993d52c2db1c08497d788d55d4afeb7
+      size: 18707
+    - path: src/preprocess_stage/resizer.py
+      hash: md5
+      md5: d18e57b39a8c5f46cf50dc9b804af976
+      size: 14154
+    - path: src/preprocess_stage/splitter.py
+      hash: md5
+      md5: a8042a6ba3707bbec6fa0fff59392a08
+      size: 17332
+    - path: src/preprocess_stage/tile_creator.py
+      hash: md5
+      md5: d10a46749d3b419a0f1f271597af265d
+      size: 12513
+    params:
+      params.yaml:
+        model-type: nano
+        preprocess:
+          resize: 1.0
+          apply-roi: false
+          train-ratio: 0.7
+          test-ratio: 0.15
+          val-ratio: 0.15
+          augmentations-per-image: 2
+          max-transforms-per-sample: 5
+        seed: 42
+        task-name: prueba
+    outs:
+    - path: data/prueba_formatted
+      hash: md5
+      md5: c47b00ef5130380475e53743a7388131.dir
+      size: 147561097
+      nfiles: 748
