@@ -9,6 +9,10 @@ from PIL import Image
 from pathlib import Path
 from utils import set_seed
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
+import logging
+from logger import get_logger
+
+logger = get_logger(__name__, level=logging.DEBUG)
 
 # Leer el yaml de parÃ¡metros para saber a que run pertenece en entrenamiento
 with open("params.yaml") as f:
@@ -21,15 +25,19 @@ with open(run_name_path, mode="r") as f:
 
 # Sincronizamos el run de entrenamiento con el de test
 api = wandb.Api()
-runs = api.runs(f"unaxetxebe94-upv-ehu/{config['train']['project']}", {"filters": {"name": run_name}})
+runs = api.runs(
+    f"unaxetxebe94-upv-ehu/{config['train']['project']}",
+    filters={"display_name": run_name}
+)
 
-if runs:
+if runs.length > 0:
     try:
         run_id = runs[0].id
         run = wandb.init(project=config['train']['project'], id=run_id, resume="must", job_type="test")
     except Exception as e:
         raise Exception("Error conectandose al run de entrenamiento desde el test:", e)
 else:
+    run = wandb.init(project=config['train']['project'], name=run_name)
     raise ValueError("No se encontró un run con ese nombre")
 
 # Inicializamos el modelo
@@ -49,6 +57,7 @@ category_map = {int(id): cat for id, cat in category_map_.items()}
 
 # Obtenemos las imÃ¡genes del test para ver las predicciones
 test_dir = Path("data", config["task-name"], "test")
+os.makedirs(test_dir, exist_ok=True)
 files_in_test_dir = os.listdir(test_dir)
 images_to_test = []
 for file in files_in_test_dir:
@@ -136,5 +145,4 @@ for img_path in images_to_test:
 wandb.log({"test_predictions": log_list})
 wandb.finish()
 
-# Eliminamos la carpeta temp
-shutil.rmtree("data/temp")
+logger.info("Se ha terminaod el experimento")

@@ -5,28 +5,28 @@ stages:
     deps:
     - path: data/prueba/_annotations.coco.json
       hash: md5
-      md5: da2236858c44280ad3db3543fba3212a
-      size: 65202
+      md5: 11109418efbb2c519af6dd27c64b6c19
+      size: 65198
     - path: src/preprocess_pipeline.py
       hash: md5
-      md5: d1835234d561b9ecf4004286fae64295
-      size: 4284
+      md5: 25685f7e6a28b24474fc13b076808509
+      size: 4339
     - path: src/preprocess_stage/augmenter.py
       hash: md5
-      md5: 3993d52c2db1c08497d788d55d4afeb7
-      size: 18707
+      md5: b4763dfaebacc3ce3c8aa72cba15f96f
+      size: 18225
     - path: src/preprocess_stage/resizer.py
       hash: md5
-      md5: d18e57b39a8c5f46cf50dc9b804af976
-      size: 14154
+      md5: b33e63e36b8f08eefbcf4a59fdb8802e
+      size: 13765
     - path: src/preprocess_stage/splitter.py
       hash: md5
-      md5: a8042a6ba3707bbec6fa0fff59392a08
-      size: 17332
+      md5: 2079c003bc4c67fdf8d7eff67161257b
+      size: 16853
     - path: src/preprocess_stage/tile_creator.py
       hash: md5
-      md5: d10a46749d3b419a0f1f271597af265d
-      size: 12513
+      md5: 87ba15a52082b5ed74b65d4b7875b453
+      size: 12169
     params:
       params.yaml:
         model-type: nano
@@ -43,6 +43,98 @@ stages:
     outs:
     - path: data/prueba_formatted
       hash: md5
-      md5: c47b00ef5130380475e53743a7388131.dir
-      size: 147561097
+      md5: dd1f3183917ef56a26a5946bab47f68e.dir
+      size: 147313649
       nfiles: 748
+    - path: data/temp/category_map.json
+      hash: md5
+      md5: 43f686a3a0cea41ebe97c4ab37c1e237
+      size: 40
+  train:
+    cmd: conda run -n rf-detr python src/train.py
+    deps:
+    - path: data/prueba_formatted
+      hash: md5
+      md5: dd1f3183917ef56a26a5946bab47f68e.dir
+      size: 147313649
+      nfiles: 748
+    - path: params.yaml
+      hash: md5
+      md5: 2f5c0a180c502c85679e49cd94a4ff3a
+      size: 444
+    - path: src/train.py
+      hash: md5
+      md5: 191d7c3af513b2cf15abd75d38ab2f18
+      size: 2028
+    params:
+      params.yaml:
+        model-type: nano
+        seed: 42
+        task-name: prueba
+        train:
+          lr: 0.0001
+          lr_encoder: 0.00015
+          batch_size: 4
+          grad_accum_steps: 2
+          epochs: 3
+          weight_decay: 0.0001
+          tensorboard: false
+          wandb: true
+          project: rf-detr
+          mlflow: true
+          clearml: false
+          run_test: true
+          eval_max_dets: 500
+    outs:
+    - path: trainings/prueba
+      hash: md5
+      md5: 434d8f93fd0f0a8976523f26307c3fe2.dir
+      size: 1333379368
+      nfiles: 18
+  process_results:
+    cmd: conda run -n rf-detr python src/process_results.py
+    deps:
+    - path: src/process_results.py
+      hash: md5
+      md5: 63cc400cbea58225ee9637a361a3e5fe
+      size: 8763
+    - path: trainings/prueba/log.txt
+      hash: md5
+      md5: 0333064d2ddc1cfb77f37f1ac979f6b1
+      size: 17741
+    params:
+      params.yaml:
+        task-name: prueba
+    outs:
+    - path: trainings/temp/dvc_metrics.json
+      hash: md5
+      md5: fe94ed24a6f70ba195797876247e20ac
+      size: 1823
+    - path: trainings/temp/dvc_plots.json
+      hash: md5
+      md5: e3296bb7152893b767d3baa305d9e5fb
+      size: 2632
+  test:
+    cmd: conda run -n rf-detr python src/test.py
+    deps:
+    - path: data/temp/category_map.json
+      hash: md5
+      md5: 43f686a3a0cea41ebe97c4ab37c1e237
+      size: 40
+    - path: src/test.py
+      hash: md5
+      md5: 9e50ea22a1f8360b1d8a3f5c8b8db5de
+      size: 5004
+    - path: trainings/prueba
+      hash: md5
+      md5: 434d8f93fd0f0a8976523f26307c3fe2.dir
+      size: 1333379368
+      nfiles: 18
+    - path: trainings/temp/run_info.json
+      hash: md5
+      md5: b315128b5164a08b9f01ee60748e22ce
+      size: 40
+    params:
+      params.yaml:
+        task-name: prueba
+        train.project: rf-detr

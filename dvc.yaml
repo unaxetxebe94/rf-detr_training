@@ -16,6 +16,8 @@ stages:
     outs:
       - data/${task-name}_formatted:
           cache: false
+      - data/temp/category_map.json: 
+          cache: false
 
   train:
     cmd: conda run -n rf-detr python src/train.py
