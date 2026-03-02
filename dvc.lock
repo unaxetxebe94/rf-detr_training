@@ -3,34 +3,31 @@ stages:
   preprocess:
     cmd: conda run -n rf-detr python src/preprocess_pipeline.py
     deps:
-    - path: data/prueba/_annotations.coco.json
-      hash: md5
-      md5: 11109418efbb2c519af6dd27c64b6c19
-      size: 65198
     - path: src/preprocess_pipeline.py
       hash: md5
-      md5: 25685f7e6a28b24474fc13b076808509
-      size: 4339
+      md5: ae511ed1305f0993fa417191b682f235
+      size: 4807
     - path: src/preprocess_stage/augmenter.py
       hash: md5
-      md5: b4763dfaebacc3ce3c8aa72cba15f96f
-      size: 18225
+      md5: 3993d52c2db1c08497d788d55d4afeb7
+      size: 18707
     - path: src/preprocess_stage/resizer.py
       hash: md5
-      md5: b33e63e36b8f08eefbcf4a59fdb8802e
-      size: 13765
+      md5: d18e57b39a8c5f46cf50dc9b804af976
+      size: 14154
     - path: src/preprocess_stage/splitter.py
       hash: md5
-      md5: 2079c003bc4c67fdf8d7eff67161257b
-      size: 16853
+      md5: a8042a6ba3707bbec6fa0fff59392a08
+      size: 17332
     - path: src/preprocess_stage/tile_creator.py
       hash: md5
-      md5: 87ba15a52082b5ed74b65d4b7875b453
-      size: 12169
+      md5: d10a46749d3b419a0f1f271597af265d
+      size: 12513
     params:
       params.yaml:
         model-type: nano
         preprocess:
+          requires-preprocess: false
           resize: 1.0
           apply-roi: false
           train-ratio: 0.7
@@ -39,17 +36,12 @@ stages:
           augmentations-per-image: 2
           max-transforms-per-sample: 5
         seed: 42
-        task-name: prueba
+        task-name: damage-detection
     outs:
-    - path: data/prueba_formatted
-      hash: md5
-      md5: dd1f3183917ef56a26a5946bab47f68e.dir
-      size: 147313649
-      nfiles: 748
     - path: data/temp/category_map.json
       hash: md5
-      md5: 43f686a3a0cea41ebe97c4ab37c1e237
-      size: 40
+      md5: 75469368d7b92d63f1a8a374b9ed49eb
+      size: 52
   train:
     cmd: conda run -n rf-detr python src/train.py
     deps:

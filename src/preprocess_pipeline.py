@@ -25,6 +25,9 @@ if __name__ == "__main__":
         params = yaml.safe_load(f)
     
     # Obtenemos los parámetros de preprocesamiento de params.yaml
+    requires_preprocess = params["preprocess"]["requires-preprocess"]
+    
+    data_src = params["data-src"]
     resize = params["preprocess"]["resize"]
     apply_roi = params["preprocess"]["apply-roi"]
     task_name = params["task-name"]
@@ -38,58 +41,59 @@ if __name__ == "__main__":
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
 
-    # Mapeo de los tiles de cada tipo de modelo
-    tile_size_mapper = {
-        "nano": 384,
-        "small": 512,
-        "medium": 576,
-        "large": 704
-    }
+    if requires_preprocess:
+        # Mapeo de los tiles de cada tipo de modelo
+        tile_size_mapper = {
+            "nano": 384,
+            "small": 512,
+            "medium": 576,
+            "large": 704
+        }
 
-    # Preparamos los tres pasos del pipeline
-    resizer = Resizer(
-        input_folder=str(Path("data", task_name)),
-        output_folder=str(Path("data", f"{task_name}_formatted", "resized_temporal")),
-        resize_factor=resize,
-        apply_roi=apply_roi
-    )
-    tile_creator = TileCreator(
-        in_dir_path=str(Path("data", task_name)) if resize == 1.0 else str(Path("data", f"{task_name}_formatted", "resized_temporal")),  # Si no se aplica resize, el input_dir es el directyorio de imágenes original
-        out_dir_path=str(Path("data", f"{task_name}_formatted")),
-        tile_size=tile_size_mapper[model_type],
-        n_jobs=os.cpu_count() // 2
-    )
-    splitter = Splitter(
-        dataset_dir=str(Path("data", f"{task_name}_formatted")),
-        output_dir=str(Path("data", f"{task_name}_formatted")),
-        train_ratio=train_ratio,
-        val_ratio=val_ratio,
-        test_ratio=test_ratio,
-        seed=seed,
-        image_action="move"
-    )
-    augmenter = Augmenter(
-        input_dir=str(Path("data", f"{task_name}_formatted", "train")),
-        output_dir=str(Path("data", f"{task_name}_formatted", "train")),
-        augmentations_per_image=augmentations_per_image,
-        max_transforms_per_sample=max_transforms_per_sample,
-        seed=seed
-    )
-    label_corrector = LabelCorrector(
-        dataset_path=str(Path("data", f"{task_name}_formatted"))
-    )
+        # Preparamos los tres pasos del pipeline
+        resizer = Resizer(
+            input_folder=data_src,
+            output_folder=str(Path("data", f"{task_name}_formatted", "resized_temporal")),
+            resize_factor=resize,
+            apply_roi=apply_roi
+        )
+        tile_creator = TileCreator(
+            in_dir_path=data_src if resize == 1.0 else str(Path("data", f"{task_name}_formatted", "resized_temporal")),  # Si no se aplica resize, el input_dir es el directyorio de imágenes original
+            out_dir_path=str(Path("data", f"{task_name}_formatted")),
+            tile_size=tile_size_mapper[model_type],
+            n_jobs=os.cpu_count() // 2
+        )
+        splitter = Splitter(
+            dataset_dir=str(Path("data", f"{task_name}_formatted")),
+            output_dir=str(Path("data", f"{task_name}_formatted")),
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+            seed=seed,
+            image_action="move"
+        )
+        augmenter = Augmenter(
+            input_dir=str(Path("data", f"{task_name}_formatted", "train")),
+            output_dir=str(Path("data", f"{task_name}_formatted", "train")),
+            augmentations_per_image=augmentations_per_image,
+            max_transforms_per_sample=max_transforms_per_sample,
+            seed=seed
+        )
+        label_corrector = LabelCorrector(
+            dataset_path=str(Path("data", f"{task_name}_formatted"))
+        )
 
-    # Ejecutamos el pipeline
-    if (resize != 1.0): resizer.run()
-    tile_creator.run()
-    if (resize != 1.0): shutil.rmtree(Path("data", f"{task_name}_formatted", "resized_temporal"))  # Se elimina la carpeta temporal de las imágenes redimensionadas
-    splitter.run()
-    augmenter.run()
-    label_corrector.run()
+        # Ejecutamos el pipeline
+        if (resize != 1.0): resizer.run()
+        tile_creator.run()
+        if (resize != 1.0): shutil.rmtree(Path("data", f"{task_name}_formatted", "resized_temporal"))  # Se elimina la carpeta temporal de las imágenes redimensionadas
+        splitter.run()
+        augmenter.run()
+        label_corrector.run()
 
     # Guardamos un mapping de cat_id --> cat_name para el test
     def save_mapping():
-        dataset_train_path = Path("data", f"{task_name}_formatted", "train")
+        dataset_train_path = Path("data", f"{task_name}_formatted", "train") if requires_preprocess else Path("data", task_name, "train")
         
         # Obtenemos los gts del entrenamiento para obtener las categorÃ­as
         annotations_path = Path(dataset_train_path, "_annotations.coco.json")

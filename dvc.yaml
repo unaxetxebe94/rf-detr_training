@@ -7,15 +7,12 @@ stages:
       - src/preprocess_stage/tile_creator.py
       - src/preprocess_stage/splitter.py
       - src/preprocess_stage/augmenter.py
-      - data/${task-name}/_annotations.coco.json
     params:
       - task-name
       - model-type
       - seed
       - preprocess
     outs:
-      - data/${task-name}_formatted:
-          cache: false
       - data/temp/category_map.json: 
           cache: false
 
@@ -23,7 +20,6 @@ stages:
     cmd: conda run -n rf-detr python src/train.py
     deps:
       - src/train.py
-      - data/${task-name}_formatted
       - params.yaml
     params:
       - train

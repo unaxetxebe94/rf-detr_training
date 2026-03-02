@@ -1,6 +1,6 @@
 outs:
-- md5: 57ebd8126d592926e21876e038a433bb.dir
-  size: 17016102
-  nfiles: 1445
+- md5: 96cfc58d9a46625f5f422945af687526.dir
+  size: 17016050
+  nfiles: 1444
   hash: md5
   path: damage-detection

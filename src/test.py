@@ -38,7 +38,7 @@ if runs.length > 0:
         raise Exception("Error conectandose al run de entrenamiento desde el test:", e)
 else:
     run = wandb.init(project=config['train']['project'], name=run_name)
-    raise ValueError("No se encontró un run con ese nombre")
+    logger.error("No se encontró un run con ese nombre")
 
 # Inicializamos el modelo
 models = {
@@ -145,4 +145,4 @@ for img_path in images_to_test:
 wandb.log({"test_predictions": log_list})
 wandb.finish()
 
-logger.info("Se ha terminaod el experimento")
+logger.info("Se ha terminado el experimento")
