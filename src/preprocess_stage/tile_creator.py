@@ -2,6 +2,7 @@ import os
 import re
 import yaml
 import json
+import random
 import shutil
 import numpy as np
 import cv2
@@ -24,8 +25,10 @@ class TileCreator:
         out_dir_path: str,
         tile_size: int,
         black_threshold: int = 10,
+        saving_prob=0.0,
         n_jobs: int = 1,
     ):
+        self.saving_prob = saving_prob
         self.in_dir_path = in_dir_path
         self.out_dir_path = out_dir_path
         self.tile_size = tile_size
@@ -219,8 +222,8 @@ class TileCreator:
                     geometries, ann_map, tree,
                 )
 
-                # Si el tile no tiene anotaciones, lo saltamos completamente
-                if not tile_anns:
+                # Si el tile no tiene anotaciones, lo saltamos completamente con cierta probabilidad
+                if not tile_anns and self.saving_prob > random.random():
                     continue
 
                 # ── 2. Solo ahora extraemos el tile de la imagen grande ──────

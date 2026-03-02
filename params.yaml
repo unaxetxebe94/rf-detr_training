@@ -5,6 +5,7 @@ data-src: E:\rf-detr_training\data\damage-detection
 
 preprocess:
   requires-preprocess: false
+  saving-prob: 0.01  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
   resize: 1.0
   apply-roi: false
   train-ratio: 0.7

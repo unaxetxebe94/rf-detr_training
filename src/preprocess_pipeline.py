@@ -29,6 +29,7 @@ if __name__ == "__main__":
     
     data_src = params["data-src"]
     resize = params["preprocess"]["resize"]
+    saving_prob = params["preprocess"]["saving_prob"]
     apply_roi = params["preprocess"]["apply-roi"]
     task_name = params["task-name"]
     train_ratio = float(params["preprocess"]["train-ratio"])
@@ -61,6 +62,7 @@ if __name__ == "__main__":
             in_dir_path=data_src if resize == 1.0 else str(Path("data", f"{task_name}_formatted", "resized_temporal")),  # Si no se aplica resize, el input_dir es el directyorio de imágenes original
             out_dir_path=str(Path("data", f"{task_name}_formatted")),
             tile_size=tile_size_mapper[model_type],
+            saving_prob=saving_prob,
             n_jobs=os.cpu_count() // 2
         )
         splitter = Splitter(
