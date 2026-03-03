@@ -2,7 +2,8 @@
 process_results.py
 ------------------
 Convierte los outputs del entrenamiento (log.txt y results.json) en ficheros
-compatibles con `dvc metrics` y `dvc plots`.
+compatibles con `dvc metrics` y `dvc plots`, y los sube a W&B como gráficas
+y métricas de resumen.
 
 Outputs
 -------
@@ -12,6 +13,7 @@ trainings/temp/dvc_plots.json     → dvc plots show (curvas por epoch)
 
 import json
 import yaml
+import wandb
 import logging
 from pathlib import Path
 from logger import get_logger
@@ -177,6 +179,173 @@ def parse_results(results_path: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# W&B logging
+# ---------------------------------------------------------------------------
+
+def _connect_wandb(params: dict):
+    """
+    Intenta retomar el run de W&B creado durante el entrenamiento.
+    Devuelve el run activo o None si no se puede conectar.
+    """
+    run_name_path = Path("trainings", "temp", "run_info.json")
+    if not run_name_path.exists():
+        logger.warning("No se encontró run_info.json — no se logeará en W&B.")
+        return None
+
+    with open(run_name_path) as f:
+        run_name = json.load(f)["run_name"]
+
+    try:
+        api = wandb.Api()
+        runs = api.runs(
+            f"{params['train']['entity']}/{params['train']['project']}"
+            if "entity" in params.get("train", {})
+            else params["train"]["project"],
+            filters={"display_name": run_name},
+        )
+        if runs.length > 0:
+            run_id = runs[0].id
+            run = wandb.init(
+                project=params["train"]["project"],
+                id=run_id,
+                resume="must",
+                job_type="process_results",
+            )
+            logger.info(f"Conectado al run W&B '{run_name}' (id: {run_id})")
+            return run
+        else:
+            logger.warning(f"No se encontró el run '{run_name}' en W&B.")
+            return None
+    except Exception as e:
+        logger.error(f"Error conectando a W&B: {e}")
+        return None
+
+
+def log_curves_to_wandb(run, plot_records: list[dict]) -> None:
+    """
+    Sube las curvas de entrenamiento epoch a epoch a W&B usando tablas
+    personalizadas, separadas en grupos temáticos.
+    """
+    if not plot_records:
+        logger.warning("No hay registros de epochs para logar en W&B.")
+        return
+
+    # ── Curvas de Loss ────────────────────────────────────────────────────────
+    loss_cols = ["epoch", "train_loss", "test_loss", "ema_test_loss"]
+    loss_table = wandb.Table(columns=loss_cols)
+    for r in plot_records:
+        loss_table.add_data(*[r.get(c) for c in loss_cols])
+    run.log({
+        "curves/losses": wandb.plot.line(
+            loss_table, x="epoch",
+            keys=["train_loss", "test_loss", "ema_test_loss"],
+            title="Losses por epoch",
+        )
+    })
+
+    # ── Loss desglosado (CE / BBox / GIoU) ───────────────────────────────────
+    loss_detail_cols = [
+        "epoch",
+        "train_loss_ce", "train_loss_bbox", "train_loss_giou",
+        "test_loss_ce",  "test_loss_bbox",  "test_loss_giou",
+    ]
+    loss_detail_table = wandb.Table(columns=loss_detail_cols)
+    for r in plot_records:
+        loss_detail_table.add_data(*[r.get(c) for c in loss_detail_cols])
+    run.log({
+        "curves/loss_components": wandb.plot.line(
+            loss_detail_table, x="epoch",
+            keys=[c for c in loss_detail_cols if c != "epoch"],
+            title="Componentes de loss por epoch",
+        )
+    })
+
+    # ── mAP ──────────────────────────────────────────────────────────────────
+    map_cols = ["epoch", "map50", "map50_95", "ema_map50", "ema_map50_95", "best_map50_95"]
+    map_table = wandb.Table(columns=map_cols)
+    for r in plot_records:
+        map_table.add_data(*[r.get(c) for c in map_cols])
+    run.log({
+        "curves/mAP": wandb.plot.line(
+            map_table, x="epoch",
+            keys=["map50", "map50_95", "ema_map50", "ema_map50_95", "best_map50_95"],
+            title="mAP por epoch",
+        )
+    })
+
+    # ── Precision / Recall / F1 ───────────────────────────────────────────────
+    prf_cols = [
+        "epoch",
+        "precision", "recall", "f1",
+        "ema_precision", "ema_recall", "ema_f1",
+    ]
+    prf_table = wandb.Table(columns=prf_cols)
+    for r in plot_records:
+        prf_table.add_data(*[r.get(c) for c in prf_cols])
+    run.log({
+        "curves/precision_recall_f1": wandb.plot.line(
+            prf_table, x="epoch",
+            keys=[c for c in prf_cols if c != "epoch"],
+            title="Precision / Recall / F1 por epoch",
+        )
+    })
+
+    # ── Learning rate ─────────────────────────────────────────────────────────
+    lr_cols = ["epoch", "lr"]
+    lr_table = wandb.Table(columns=lr_cols)
+    for r in plot_records:
+        lr_table.add_data(*[r.get(c) for c in lr_cols])
+    run.log({
+        "curves/learning_rate": wandb.plot.line(
+            lr_table, x="epoch",
+            keys=["lr"],
+            title="Learning rate por epoch",
+        )
+    })
+
+    logger.info("Curvas de entrenamiento subidas a W&B.")
+
+
+def log_metrics_to_wandb(run, metrics: dict) -> None:
+    """Sube las métricas finales al summary del run de W&B."""
+    if not metrics:
+        return
+    for k, v in metrics.items():
+        if v is not None:
+            run.summary[f"final/{k}"] = v
+    logger.info(f"Métricas finales ({len(metrics)}) subidas al summary de W&B.")
+
+
+def log_preprocess_info_to_wandb(run) -> None:
+    """
+    Si existe trainings/temp/preprocess_info.json, sube los parámetros y
+    estadísticas del preprocesado como config y tabla en W&B.
+    """
+    preprocess_info_path = Path("trainings", "temp", "preprocess_info.json")
+    if not preprocess_info_path.exists():
+        logger.info("No hay preprocess_info.json — se omite el logging de preprocesado.")
+        return
+
+    with open(preprocess_info_path) as f:
+        info = json.load(f)
+
+    # Parámetros de preprocesado → config del run (para comparar entre runs)
+    if "params" in info:
+        for k, v in info["params"].items():
+            run.config[f"preprocess/{k}"] = v
+
+    # Estadísticas de splits → tabla W&B
+    if "split_stats" in info:
+        stats = info["split_stats"]
+        table = wandb.Table(columns=["split", "n_images", "n_annotations"])
+        for split, data in stats.items():
+            table.add_data(split, data.get("n_images", 0), data.get("n_annotations", 0))
+        run.log({"preprocess/split_stats": table})
+
+    logger.info("Información de preprocesado subida a W&B.")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -189,7 +358,7 @@ def main():
     output_dir = Path("trainings", "temp")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. Plots desde log.txt ───────────────────────────────────────────
+    # ── 1. Plots desde log.txt ───────────────────────────────────────────────
     log_path = train_dir / "log.txt"
     if not log_path.exists():
         logger.error(f"No se encontró {log_path}")
@@ -202,7 +371,7 @@ def main():
         json.dump(plot_records, f, indent=2)
     logger.info(f"Plots escritos → {plots_out}")
 
-    # ── 2. Métricas desde results.json ──────────────────────────────────
+    # ── 2. Métricas desde results.json ──────────────────────────────────────
     results_path = train_dir / "results.json"
     if not results_path.exists():
         logger.warning(
@@ -232,6 +401,17 @@ def main():
     with open(metrics_out, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     logger.info(f"Métricas escritas → {metrics_out}")
+
+    # ── 3. Logging a W&B ────────────────────────────────────────────────────
+    run = _connect_wandb(params)
+    if run is not None:
+        log_curves_to_wandb(run, plot_records)
+        log_metrics_to_wandb(run, metrics)
+        log_preprocess_info_to_wandb(run)
+        wandb.finish()
+        logger.info("W&B: logging completado y run cerrado.")
+    else:
+        logger.warning("W&B no disponible — sólo se han escrito los ficheros DVC.")
 
 
 if __name__ == "__main__":
