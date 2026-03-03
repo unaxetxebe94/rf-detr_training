@@ -1,7 +1,0 @@
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    hooks:
-      - id: ruff
-  - repo: https://github.com/iterative/dvc
-    hooks:
-      - id: dvc-pre-commit  # detecta si olvidaste dvc add
