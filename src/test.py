@@ -16,8 +16,8 @@ logger = get_logger(__name__, level=logging.DEBUG)
 
 # Leer el yaml de parÃ¡metros para saber a que run pertenece en entrenamiento
 with open("params.yaml") as f:
-    config = yaml.safe_load(f)
-set_seed(config["seed"])
+    params = yaml.safe_load(f)
+set_seed(params["seed"])
 
 run_name_path = Path("trainings", "temp", "run_info.json")
 with open(run_name_path, mode="r") as f:
@@ -26,18 +26,18 @@ with open(run_name_path, mode="r") as f:
 # Sincronizamos el run de entrenamiento con el de test
 api = wandb.Api()
 runs = api.runs(
-    f"unaxetxebe94-upv-ehu/{config['train']['project']}",
+    f"unaxetxebe94-upv-ehu/{params['train']['project']}",
     filters={"display_name": run_name}
 )
 
 if runs.length > 0:
     try:
         run_id = runs[0].id
-        run = wandb.init(project=config['train']['project'], id=run_id, resume="must", job_type="test")
+        run = wandb.init(project=params['train']['project'], id=run_id, resume="must", job_type="test")
     except Exception as e:
         raise Exception("Error conectandose al run de entrenamiento desde el test:", e)
 else:
-    run = wandb.init(project=config['train']['project'], name=run_name)
+    run = wandb.init(project=params['train']['project'], name=run_name)
     logger.error("No se encontró un run con ese nombre")
 
 # Inicializamos el modelo
@@ -47,7 +47,7 @@ models = {
         "medium": RFDETRMedium,
         "large": RFDETRLarge
     }
-model = models[str.lower(config["model-type"])](pretrain_weights=f"trainings/{config['task-name']}/checkpoint_best_total.pth")
+model = models[str.lower(params["model-type"])](pretrain_weights=f"trainings/{params['task-name']}/checkpoint_best_total.pth")
 
 # Obtenemos category_map
 category_map_path = Path("data", "temp", "category_map.json")
@@ -56,7 +56,7 @@ with open(category_map_path, mode="r") as f:
 category_map = {int(id): cat for id, cat in category_map_.items()}
 
 # Obtenemos las imÃ¡genes del test para ver las predicciones
-test_dir = Path("data", config["task-name"], "test")
+test_dir = Path(params["data-src"]) if params["preprocess"]["requires-preprocess"] else Path("data", f'{params["task-name"]}_formatted', "test")
 os.makedirs(test_dir, exist_ok=True)
 files_in_test_dir = os.listdir(test_dir)
 images_to_test = []

@@ -5,8 +5,8 @@ stages:
     deps:
     - path: src/preprocess_pipeline.py
       hash: md5
-      md5: ae511ed1305f0993fa417191b682f235
-      size: 4807
+      md5: 5f7453135b8952d0975da489560d0a5c
+      size: 4882
     - path: src/preprocess_stage/augmenter.py
       hash: md5
       md5: 3993d52c2db1c08497d788d55d4afeb7
@@ -21,13 +21,14 @@ stages:
       size: 17332
     - path: src/preprocess_stage/tile_creator.py
       hash: md5
-      md5: d10a46749d3b419a0f1f271597af265d
-      size: 12513
+      md5: 01b9e4f31de2e4db2e3650cf91e2ca38
+      size: 12657
     params:
       params.yaml:
         model-type: nano
         preprocess:
           requires-preprocess: false
+          saving-prob: 0.01
           resize: 1.0
           apply-roi: false
           train-ratio: 0.7
@@ -45,88 +46,83 @@ stages:
   train:
     cmd: conda run -n rf-detr python src/train.py
     deps:
-    - path: data/prueba_formatted
-      hash: md5
-      md5: dd1f3183917ef56a26a5946bab47f68e.dir
-      size: 147313649
-      nfiles: 748
     - path: params.yaml
       hash: md5
-      md5: 2f5c0a180c502c85679e49cd94a4ff3a
-      size: 444
+      md5: 4de271162f59c8cccb7a4d891cef6dd7
+      size: 666
     - path: src/train.py
       hash: md5
-      md5: 191d7c3af513b2cf15abd75d38ab2f18
-      size: 2028
+      md5: 96996b8f93d0e1b721725446f659a883
+      size: 2154
     params:
       params.yaml:
         model-type: nano
         seed: 42
-        task-name: prueba
+        task-name: damage-detection
         train:
           lr: 0.0001
           lr_encoder: 0.00015
-          batch_size: 4
-          grad_accum_steps: 2
+          batch_size: 16
+          grad_accum_steps: 3
           epochs: 3
           weight_decay: 0.0001
           tensorboard: false
           wandb: true
           project: rf-detr
-          mlflow: true
+          mlflow: false
           clearml: false
           run_test: true
           eval_max_dets: 500
     outs:
-    - path: trainings/prueba
+    - path: trainings/damage-detection
       hash: md5
-      md5: 434d8f93fd0f0a8976523f26307c3fe2.dir
-      size: 1333379368
-      nfiles: 18
+      md5: fe152f39d3caacd0ec8614e1835bf038.dir
+      size: 1334024480
+      nfiles: 17
   process_results:
     cmd: conda run -n rf-detr python src/process_results.py
     deps:
     - path: src/process_results.py
       hash: md5
-      md5: 63cc400cbea58225ee9637a361a3e5fe
-      size: 8763
-    - path: trainings/prueba/log.txt
+      md5: e1dd0c9b4d64a9928c9aeb400d3d9af7
+      size: 9000
+    - path: trainings/damage-detection/log.txt
       hash: md5
-      md5: 0333064d2ddc1cfb77f37f1ac979f6b1
-      size: 17741
+      md5: 46a5a7125d9e92ba1d39ebf5edd25e91
+      size: 14817
     params:
       params.yaml:
-        task-name: prueba
+        task-name: damage-detection
     outs:
     - path: trainings/temp/dvc_metrics.json
       hash: md5
-      md5: fe94ed24a6f70ba195797876247e20ac
-      size: 1823
+      md5: a0d01d37477d269fb0b84b3b55e6483a
+      size: 1005
     - path: trainings/temp/dvc_plots.json
       hash: md5
-      md5: e3296bb7152893b767d3baa305d9e5fb
-      size: 2632
+      md5: 3e75657c47bbf7e9271d8c900831b350
+      size: 2595
   test:
     cmd: conda run -n rf-detr python src/test.py
     deps:
     - path: data/temp/category_map.json
       hash: md5
-      md5: 43f686a3a0cea41ebe97c4ab37c1e237
-      size: 40
+      md5: 75469368d7b92d63f1a8a374b9ed49eb
+      size: 52
     - path: src/test.py
       hash: md5
-      md5: 9e50ea22a1f8360b1d8a3f5c8b8db5de
-      size: 5004
-    - path: trainings/prueba
+      md5: 6ecc3699e14225568f755f40d9228ea3
+      size: 5092
+    - path: trainings/damage-detection
       hash: md5
-      md5: 434d8f93fd0f0a8976523f26307c3fe2.dir
-      size: 1333379368
-      nfiles: 18
+      md5: fe152f39d3caacd0ec8614e1835bf038.dir
+      size: 1334024480
+      nfiles: 17
     - path: trainings/temp/run_info.json
       hash: md5
-      md5: b315128b5164a08b9f01ee60748e22ce
-      size: 40
+      md5: 291c2e2284cc797ee16f7ef67c995faa
+      size: 50
     params:
       params.yaml:
-        task-name: prueba
+        task-name: damage-detection
         train.project: rf-detr

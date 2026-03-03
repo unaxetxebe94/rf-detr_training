@@ -29,7 +29,7 @@ if __name__ == "__main__":
     
     data_src = params["data-src"]
     resize = params["preprocess"]["resize"]
-    saving_prob = params["preprocess"]["saving_prob"]
+    saving_prob = params["preprocess"]["saving-prob"]
     apply_roi = params["preprocess"]["apply-roi"]
     task_name = params["task-name"]
     train_ratio = float(params["preprocess"]["train-ratio"])
@@ -95,7 +95,7 @@ if __name__ == "__main__":
 
     # Guardamos un mapping de cat_id --> cat_name para el test
     def save_mapping():
-        dataset_train_path = Path("data", f"{task_name}_formatted", "train") if requires_preprocess else Path("data", task_name, "train")
+        dataset_train_path = Path("data", f"{task_name}_formatted", "train") if requires_preprocess else Path(data_src, "train")
         
         # Obtenemos los gts del entrenamiento para obtener las categorÃ­as
         annotations_path = Path(dataset_train_path, "_annotations.coco.json")

@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     # Accedemos a las rutas desde 'tp'
     now = datetime.now().timestamp()
-    dataset_dir = Path("data", f"{params['task-name']}_formatted") if not params["preprocess"]["requires-preprocess"] else Path(params['data-src'])
+    dataset_dir = Path("data", f"{params['task-name']}_formatted") if params["preprocess"]["requires-preprocess"] else Path(params['data-src'])
     output_dir = Path("trainings", params["task-name"])
     run = f"{now}_{params['task-name']}"
 
