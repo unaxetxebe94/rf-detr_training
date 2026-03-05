@@ -24,7 +24,7 @@ train:
   weight_decay: 1e-4
   tensorboard: false
   wandb: true
-  project: rf-detr
+  project: prueba_ps
   mlflow: false
   clearml: false
   run_test: true
