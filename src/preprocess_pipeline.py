@@ -19,75 +19,18 @@ from logger import get_logger
 logger = get_logger(__name__, level=logging.DEBUG)
 
 
-def _count_split_stats(dataset_dir: Path, splits: tuple = ("train", "val", "test")) -> dict:
-    """
-    Cuenta imágenes y anotaciones en cada split del dataset formateado.
-    Devuelve un dict {split: {n_images, n_annotations}}.
-    """
-    stats = {}
-    for split in splits:
-        split_dir = dataset_dir / split
-        if not split_dir.exists():
-            continue
-
-        # Contar imágenes
-        image_exts = {".jpg", ".jpeg", ".png", ".webp", ".tiff"}
-        n_images = sum(
-            1 for f in split_dir.iterdir()
-            if f.suffix.lower() in image_exts
-        )
-
-        # Contar anotaciones desde el COCO JSON si existe
-        annotations_file = split_dir / "_annotations.coco.json"
-        n_annotations = 0
-        if annotations_file.exists():
-            with open(annotations_file) as f:
-                coco = json.load(f)
-            n_annotations = len(coco.get("annotations", []))
-
-        stats[split] = {"n_images": n_images, "n_annotations": n_annotations}
-        logger.debug(f"Split '{split}': {n_images} imágenes, {n_annotations} anotaciones")
-
-    return stats
-
-
-def save_preprocess_info(params: dict, dataset_dir: Path, output_dir: Path) -> None:
-    """
-    Guarda un JSON con los parámetros de preprocesado y las estadísticas del
-    dataset resultante. Este fichero lo lee process_results.py para logearlo en W&B.
-    """
-    preprocess_params = params.get("preprocess", {})
-
-    # Estadísticas de los splits generados
-    split_stats = _count_split_stats(dataset_dir)
-
-    info = {
-        "params": {
-            "resize":                    preprocess_params.get("resize"),
-            "apply_roi":                 preprocess_params.get("apply-roi"),
-            "saving_prob":               preprocess_params.get("saving-prob"),
-            "train_ratio":               preprocess_params.get("train-ratio"),
-            "val_ratio":                 preprocess_params.get("val-ratio"),
-            "test_ratio":                preprocess_params.get("test-ratio"),
-            "augmentations_per_image":   preprocess_params.get("augmentations-per-image"),
-            "max_transforms_per_sample": preprocess_params.get("max-transforms-per-sample"),
-            "model_type":                params.get("model-type"),
-            "seed":                      params.get("seed"),
-            "data_src":                  params.get("data-src"),
-            "task_name":                 params.get("task-name"),
-        },
-        "split_stats": split_stats,
-    }
-
-    output_path = output_dir / "preprocess_info.json"
-    os.makedirs(output_path.parent, exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(info, f, indent=2)
-
-    logger.info(f"preprocess_info.json guardado → {output_path}")
-
+def is_dataset_formatted(dataset_dir: Path) -> bool:
+    if os.path.exists(formatted_dataset_dir):
+        train_exists = os.path.exists(formatted_dataset_dir / "train")
+        test_exists = os.path.exists(formatted_dataset_dir / "test")
+        valid_exists = os.path.exists(formatted_dataset_dir / "valid")
+        return train_exists and test_exists and valid_exists
+    else: 
+        logger.warning("No se encontró la carpeta que debería contener el dataset formateado.")
 
 if __name__ == "__main__":
+
+    logger.info("\n\n\n====================== INICIANDO PIPELINE ======================")
 
     params = read_params()
 
@@ -108,7 +51,6 @@ if __name__ == "__main__":
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
     formatted_dataset_dir = Path("data", "formatted")
-    output_dir  = Path("trainings", "temp")
 
 
     # Inicializamos los pasos del pipeline si se requiere
@@ -161,38 +103,10 @@ if __name__ == "__main__":
         augmenter.run()
         label_corrector.run()
     else:
-        if os.path.exists(formatted_dataset_dir):
-            train_exists = os.path.exists(formatted_dataset_dir / "train")
-            test_exists = os.path.exists(formatted_dataset_dir / "test")
-            valid_exists = os.path.exists(formatted_dataset_dir / "valid")
-            if (not (train_exists or test_exists or valid_exists)): raise Exception("Se ha puesto que no se preprocese pero no hay dataset para entrenar")
-
-
-    # Guardamos un mapping de cat_id --> cat_name para el test
-    def save_mapping():
-        dataset_train_path = formatted_dataset_dir / "train"
-        
-        annotations_path = dataset_train_path / "_annotations.coco.json"
-        with open(annotations_path, mode="r") as f:
-            coco = json.load(f)
-        categories = coco["categories"]
-        output = {}
-        
-        for cat in categories:
-            if cat["id"] not in output:
-                output[cat["id"]] = cat["name"]
-
-        output_path = Path("data", "temp", "category_map.json")
-        os.makedirs(output_path.parent, exist_ok=True)
-        with open(output_path, mode="w") as f:
-            json.dump(output, f)
-
-        logger.debug("Se ha guardado el category_map")
-
-    save_mapping()
-
-    # ── Guardar info de preprocesado para W&B ────────────────────────────────
-    stats_dir = formatted_dataset_dir
-    save_preprocess_info(params, stats_dir, output_dir)
-
-    logger.debug("Se ha terminado el preprocesado")
+        if (is_dataset_formatted(formatted_dataset_dir)): logger.warning("No se ha encontrado el dataset formateado donde debería estar. Se procederá a fusionar los datasets de entrada asumiendo que ya están formateados y preparados para ello.")    
+        else:
+            # Si no se requiere preprocesar, se asumirá que los datasets están formateados y preparados para unirlos
+            if not (is_dataset_formatted(params["data-src1"]) and is_dataset_formatted(params["data-src2"])):
+                raise Exception(f"No se han encontrado los datasets formateados en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
+            
+    logger.info("Se ha terminado el preprocesado de los datasets. Se procede a fusionarlos.")

@@ -1,11 +1,12 @@
 task-name: prueba_ps
 model-type: nano
+seed: 42
 
-data-src1: top  # Dataset local
-data-src2: top  # Dataset remoto
+data-src1: C:\Users\u.etxeberria\Desktop\datasets\formatted\BasketballDataset - copia  # Dataset local
+data-src2: C:\Users\u.etxeberria\Desktop\datasets\formatted\People - copia  # Dataset remoto
 
 preprocess:
-  requires-preprocess: true
+  requires-preprocess: false
   saving-prob: 0.01  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
   resize: 1.0
   apply-roi: false
@@ -18,7 +19,7 @@ preprocess:
 train:
   lr: 0.0001
   lr_encoder: 0.00015
-  batch_size: 16
+  batch_size: 8
   grad_accum_steps: 3
   epochs: 3
   weight_decay: 1e-4

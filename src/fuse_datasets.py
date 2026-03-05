@@ -2,7 +2,10 @@ import json
 import os
 import json
 import shutil
+import logging 
+from logger import get_logger
 from utils import read_params
+from pathlib import Path
 
 class DatasetFuser:
 
@@ -122,15 +125,114 @@ class DatasetFuser:
             split1_path = os.path.join(dataset1_path, split)
             split2_path = os.path.join(dataset2_path, split)
             split_output_path = os.path.join(output_path, split)
-            DatasetFuser.fuse_dataset(split1_path, split2_path, split_output_path)
+            DatasetFuser.fuse_datasets(split1_path, split2_path, split_output_path)
 
+
+
+def _count_split_stats(dataset_dir: Path, splits: tuple = ("train", "val", "test")) -> dict:
+    """
+    Cuenta imágenes y anotaciones en cada split del dataset formateado.
+    Devuelve un dict {split: {n_images, n_annotations}}.
+    """
+    stats = {}
+    for split in splits:
+        split_dir = dataset_dir / split
+        if not split_dir.exists():
+            continue
+
+        # Contar imágenes
+        image_exts = {".jpg", ".jpeg", ".png", ".webp", ".tiff"}
+        n_images = sum(
+            1 for f in split_dir.iterdir()
+            if f.suffix.lower() in image_exts
+        )
+
+        # Contar anotaciones desde el COCO JSON si existe
+        annotations_file = split_dir / "_annotations.coco.json"
+        n_annotations = 0
+        if annotations_file.exists():
+            with open(annotations_file) as f:
+                coco = json.load(f)
+            n_annotations = len(coco.get("annotations", []))
+
+        stats[split] = {"n_images": n_images, "n_annotations": n_annotations}
+        logger.debug(f"Split '{split}': {n_images} imágenes, {n_annotations} anotaciones")
+
+    return stats
+
+def save_preprocess_info(params: dict, dataset_dir: Path, output_dir: Path) -> None:
+    """
+    Guarda un JSON con los parámetros de preprocesado y las estadísticas del
+    dataset resultante. Este fichero lo lee process_results.py para logearlo en W&B.
+    """
+    preprocess_params = params.get("preprocess", {})
+
+    # Estadísticas de los splits generados
+    split_stats = _count_split_stats(dataset_dir)
+
+    info = {
+        "params": {
+            "resize":                    preprocess_params.get("resize"),
+            "apply_roi":                 preprocess_params.get("apply-roi"),
+            "saving_prob":               preprocess_params.get("saving-prob"),
+            "train_ratio":               preprocess_params.get("train-ratio"),
+            "val_ratio":                 preprocess_params.get("val-ratio"),
+            "test_ratio":                preprocess_params.get("test-ratio"),
+            "augmentations_per_image":   preprocess_params.get("augmentations-per-image"),
+            "max_transforms_per_sample": preprocess_params.get("max-transforms-per-sample"),
+            "model_type":                params.get("model-type"),
+            "seed":                      params.get("seed"),
+            "data_src":                  params.get("data-src"),
+            "task_name":                 params.get("task-name"),
+        },
+        "split_stats": split_stats,
+    }
+
+    output_path = output_dir / "preprocess_info.json"
+    os.makedirs(output_path.parent, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(info, f, indent=2)
+
+    logger.info(f"preprocess_info.json guardado → {output_path}")
 
 if __name__ == "__main__":
+
+    logger = get_logger(__name__, level=logging.DEBUG)
 
     params = read_params()
 
     DatasetFuser.fuse_splitted_datasets(
         dataset1_path=params["data-src1"],
         dataset2_path=params["data-src2"],
-        output_path=r"data"
+        output_path=r"data\formatted"
     )
+
+    # Guardamos un mapping de cat_id --> cat_name para el test
+    output_dir  = Path("trainings", "temp")
+    def save_mapping():
+        dataset_train_path = Path("data", "formatted", "train")
+        
+        annotations_path = dataset_train_path / "_annotations.coco.json"
+        with open(annotations_path, mode="r") as f:
+            coco = json.load(f)
+        categories = coco["categories"]
+        output = {}
+        
+        for cat in categories:
+            if cat["id"] not in output:
+                output[cat["id"]] = cat["name"]
+
+        output_path = Path("data", "temp", "category_map.json")
+        os.makedirs(output_path.parent, exist_ok=True)
+        with open(output_path, mode="w") as f:
+            json.dump(output, f)
+
+        logger.debug("Se ha guardado el category_map")
+
+    save_mapping()
+
+    # ── Guardar info de preprocesado para W&B ────────────────────────────────
+    stats_dir = Path("data", "formatted")
+    save_preprocess_info(params, stats_dir, output_dir)
+
+    logger.debug("Se ha terminado la fusión de datasets")
