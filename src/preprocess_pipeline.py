@@ -96,7 +96,12 @@ if __name__ == "__main__":
     # Obtenemos los parámetros de preprocesamiento de params.yaml
     requires_preprocess = params["preprocess"]["requires-preprocess"]
     
-    data_src = params["data-src"]
+    data_src_map = {
+        "top": "E:/Images for Labelling/Top",
+        "left": "E:/Images for Labelling/Left",
+        "front": "E:/Images for Labelling/Front",
+    }
+    data_src = data_src_map[params["data-src"].lower()]
     resize = params["preprocess"]["resize"]
     saving_prob = params["preprocess"]["saving-prob"]
     apply_roi = params["preprocess"]["apply-roi"]
@@ -111,7 +116,7 @@ if __name__ == "__main__":
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
 
-    dataset_dir = Path("data", f"{task_name}_formatted")
+    dataset_dir = Path("data", "formatted")
     output_dir  = Path("trainings", "temp")
 
     if requires_preprocess:
@@ -125,13 +130,13 @@ if __name__ == "__main__":
 
         # Preparamos los tres pasos del pipeline
         resizer = Resizer(
-            input_folder=data_src,
-            output_folder=str(Path("data", f"{task_name}_formatted", "resized_temporal")),
+            input_folder=Path("data", "raw"),
+            output_folder=str(Path("data", "formatted", "resized_temporal")),
             resize_factor=resize,
             apply_roi=apply_roi
         )
         tile_creator = TileCreator(
-            in_dir_path=data_src if resize == 1.0 else str(Path("data", f"{task_name}_formatted", "resized_temporal")),
+            in_dir_path=Path("data", "raw") if resize == 1.0 else str(Path("data", "formatted", "resized_temporal")),
             out_dir_path=str(dataset_dir),
             tile_size=tile_size_mapper[model_type],
             saving_prob=saving_prob,

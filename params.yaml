@@ -1,10 +1,10 @@
 task-name: damage-detection
 model-type: nano
 seed: 42
-data-src: E:\rf-detr_training\data\damage-detection
+data-src: top
 
 preprocess:
-  requires-preprocess: false
+  requires-preprocess: true
   saving-prob: 0.01  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
   resize: 1.0
   apply-roi: false
