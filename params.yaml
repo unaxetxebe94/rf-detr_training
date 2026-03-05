@@ -1,7 +1,8 @@
-task-name: damage-detection
+task-name: prueba_ps
 model-type: nano
-seed: 42
-data-src: top
+
+data-src1: top  # Dataset local
+data-src2: top  # Dataset remoto
 
 preprocess:
   requires-preprocess: true

@@ -18,6 +18,7 @@ param(
 $ErrorActionPreference = "Stop"
 $StartTime = Get-Date
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,12 +47,70 @@ function Invoke-Stage {
     Write-Ok "$StageName completado."
 }
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Preguntar si se quiere guardar el dataset en git
+# ─────────────────────────────────────────────────────────────────────────────
+
+Write-Step "Versionado del dataset"
+
+# COMMIT
+$response = Read-Host "¿Quieres guardar la base de datos en git para reproducir el experimento (COMMIT)? ([y]/n)"
+
+if ($response -eq "y" -or $response -eq "") {
+    Write-Host "Guardando estado en git..." -ForegroundColor Yellow
+
+    git add .
+    git commit -m "Snapshot dataset antes de ejecutar experimento $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "No se pudo hacer commit (quizá no hay cambios)."
+    }
+    else {
+        Write-Ok "Snapshot guardado en git."
+    }
+
+    # PUSH
+    $response = Read-Host "¿Quieres hacer PUSH de los cambios? ([y]/n)"
+
+    if ($response -eq "y" -or $response -eq "") {
+        Write-Host "Subiendo cambios al remoto..." -ForegroundColor Yellow
+
+        git push
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "No se pudo hacer push"
+        }
+        else {
+            Write-Ok "Snapshot guardado en git."
+        }
+    }
+    elseif ($response -eq "n") {
+        Write-Warn "Se ejecutará el pipeline sin versionar el dataset."
+    }
+    else {
+        Write-Err "Respuesta inválida. Usa 'y' o 'n'."
+        exit 1
+    }
+}
+elseif ($response -eq "n") {
+    Write-Warn "Se ejecutará el pipeline sin versionar el dataset."
+}
+else {
+    Write-Err "Respuesta inválida. Usa 'y' o 'n'."
+    exit 1
+}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Etapas del pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 1. Preprocesado
+# 0. Preprocesado
 Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
+
+# 1. Fusionar los datasets del master y slave
+Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
 
 # 2. Entrenamiento
 Invoke-Stage "Entrenamiento" "src/train.py"
@@ -61,6 +120,7 @@ Invoke-Stage "Procesado de resultados" "src/process_results.py"
 
 # 4. Test
 Invoke-Stage "Test" "src/test.py"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resumen final

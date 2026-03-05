@@ -8,7 +8,7 @@ import shutil
 import logging
 from pathlib import Path
 
-from utils import set_seed
+from utils import set_seed, read_params
 from preprocess_stage.resizer import Resizer
 from preprocess_stage.tile_creator import TileCreator
 from preprocess_stage.splitter import Splitter
@@ -89,19 +89,11 @@ def save_preprocess_info(params: dict, dataset_dir: Path, output_dir: Path) -> N
 
 if __name__ == "__main__":
 
-    # Leemos el archivo de parámetros del pipeline
-    with open("params.yaml", mode="r") as f:
-        params = yaml.safe_load(f)
-    
+    params = read_params()
+
     # Obtenemos los parámetros de preprocesamiento de params.yaml
+    input_folder = params["data-src1"]
     requires_preprocess = params["preprocess"]["requires-preprocess"]
-    
-    data_src_map = {
-        "top": "E:/Images for Labelling/Top",
-        "left": "E:/Images for Labelling/Left",
-        "front": "E:/Images for Labelling/Front",
-    }
-    data_src = data_src_map[params["data-src"].lower()]
     resize = params["preprocess"]["resize"]
     saving_prob = params["preprocess"]["saving-prob"]
     apply_roi = params["preprocess"]["apply-roi"]
@@ -115,10 +107,11 @@ if __name__ == "__main__":
     seed = params["seed"]
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
-
-    dataset_dir = Path("data", "formatted")
+    formatted_dataset_dir = Path("data", "formatted")
     output_dir  = Path("trainings", "temp")
 
+
+    # Inicializamos los pasos del pipeline si se requiere
     if requires_preprocess:
         # Mapeo de los tiles de cada tipo de modelo
         tile_size_mapper = {
@@ -127,24 +120,23 @@ if __name__ == "__main__":
             "medium": 576,
             "large": 704
         }
-
         # Preparamos los tres pasos del pipeline
         resizer = Resizer(
-            input_folder=Path("data", "raw"),
+            input_folder=input_folder,
             output_folder=str(Path("data", "formatted", "resized_temporal")),
             resize_factor=resize,
             apply_roi=apply_roi
         )
         tile_creator = TileCreator(
-            in_dir_path=Path("data", "raw") if resize == 1.0 else str(Path("data", "formatted", "resized_temporal")),
-            out_dir_path=str(dataset_dir),
+            in_dir_path=input_folder if resize == 1.0 else str(Path("data", "formatted", "resized_temporal")),
+            out_dir_path=str(formatted_dataset_dir),
             tile_size=tile_size_mapper[model_type],
             saving_prob=saving_prob,
             n_jobs=os.cpu_count() // 2
         )
         splitter = Splitter(
-            dataset_dir=str(dataset_dir),
-            output_dir=str(dataset_dir),
+            dataset_dir=str(formatted_dataset_dir),
+            output_dir=str(formatted_dataset_dir),
             train_ratio=train_ratio,
             val_ratio=val_ratio,
             test_ratio=test_ratio,
@@ -152,27 +144,33 @@ if __name__ == "__main__":
             image_action="move"
         )
         augmenter = Augmenter(
-            input_dir=str(dataset_dir / "train"),
-            output_dir=str(dataset_dir / "train"),
+            input_dir=str(formatted_dataset_dir / "train"),
+            output_dir=str(formatted_dataset_dir / "train"),
             augmentations_per_image=augmentations_per_image,
             max_transforms_per_sample=max_transforms_per_sample,
             seed=seed
         )
         label_corrector = LabelCorrector(
-            dataset_path=str(dataset_dir)
+            dataset_path=str(formatted_dataset_dir)
         )
-
         # Ejecutamos el pipeline
         if (resize != 1.0): resizer.run()
         tile_creator.run()
-        if (resize != 1.0): shutil.rmtree(Path("data", f"{task_name}_formatted", "resized_temporal"))
+        if (resize != 1.0): shutil.rmtree(Path("data", "formatted", "resized_temporal"))
         splitter.run()
         augmenter.run()
         label_corrector.run()
+    else:
+        if os.path.exists(formatted_dataset_dir):
+            train_exists = os.path.exists(formatted_dataset_dir / "train")
+            test_exists = os.path.exists(formatted_dataset_dir / "test")
+            valid_exists = os.path.exists(formatted_dataset_dir / "valid")
+            if (not (train_exists or test_exists or valid_exists)): raise Exception("Se ha puesto que no se preprocese pero no hay dataset para entrenar")
+
 
     # Guardamos un mapping de cat_id --> cat_name para el test
     def save_mapping():
-        dataset_train_path = dataset_dir / "train" if requires_preprocess else Path(data_src, "train")
+        dataset_train_path = formatted_dataset_dir / "train"
         
         annotations_path = dataset_train_path / "_annotations.coco.json"
         with open(annotations_path, mode="r") as f:
@@ -194,9 +192,7 @@ if __name__ == "__main__":
     save_mapping()
 
     # ── Guardar info de preprocesado para W&B ────────────────────────────────
-    # Se usa la ruta del dataset formateado si se ha preprocesado,
-    # o el data-src original si el dataset ya venía dividido.
-    stats_dir = dataset_dir if requires_preprocess else Path(data_src)
+    stats_dir = formatted_dataset_dir
     save_preprocess_info(params, stats_dir, output_dir)
 
     logger.debug("Se ha terminado el preprocesado")

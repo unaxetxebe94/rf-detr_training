@@ -4,25 +4,25 @@ import yaml
 import logging
 from pathlib import Path
 from datetime import datetime
-from utils import set_seed
+from utils import set_seed, read_params
 from logger import get_logger
 
 if __name__ == "__main__":
     logger = get_logger(__name__, level=logging.DEBUG)
 
     # 1. Carga segura
-    with open("params.yaml") as f:
-        params = yaml.safe_load(f)
+    params = read_params()
     set_seed(params["seed"])
 
-    tp = params["train"]
+    tp = params["train"]  # training parameters
     model_type = params["model-type"]
+    pp = params["preprocess"]  # preprocess parameters
 
     # Accedemos a las rutas desde 'tp'
-    now = datetime.now().timestamp()
-    dataset_dir = Path("data", f"{params['task-name']}_formatted") if params["preprocess"]["requires-preprocess"] else Path(params['data-src'])
+    now = datetime.now().timestamp().strftime("%Y-%m-%d %H:%M:%S")
+    dataset_dir = Path("data", "formatted")
     output_dir = Path("trainings", params["task-name"])
-    run = f"{now}_{params['task-name']}"
+    run_name = f"[{now}]-saving_prob={pp['saving-prob']}-resize={pp["resize"]}-apply_roi={pp["apply-roi"]}-train_ratio={pp["train-ratio"]}-test_ratio={pp["test-ratio"]}-val_ratio={pp["val-ratio"]}-augmentations_per_image={pp["augmentations-per-image"]}-max_transformations_per_sample={pp["max-transforms-per-sample"]}"
 
     # SelecciÃ³n de modelo
     models = {
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         tensorboard = tp["tensorboard"],
         wandb = tp["wandb"],
         project = tp["project"],
-        run = run,
+        run = run_name,
         mlflow = tp["mlflow"],
         clearml = tp["clearml"],
         run_test = tp["run_test"],
@@ -60,6 +60,6 @@ if __name__ == "__main__":
     run_name_path = Path(output_dir.parent, "temp", "run_info.json")
     os.makedirs(run_name_path.parent, exist_ok=True)
     with open(run_name_path, "w") as f:
-        json.dump({"run_name": run}, f)
+        json.dump({"run_name": run_name}, f)
     logger.info("Se ha escrito run_info")
     

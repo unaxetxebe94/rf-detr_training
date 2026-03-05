@@ -22,3 +22,6 @@ wandb/
 
 # Archivos relacionados con python
 __pycache__
+
+# La carpeta con los datos
+data

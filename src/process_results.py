@@ -17,6 +17,7 @@ import wandb
 import logging
 from pathlib import Path
 from logger import get_logger
+from utils import read_params
 
 logger = get_logger(__name__, level=logging.DEBUG)
 
@@ -350,8 +351,7 @@ def log_preprocess_info_to_wandb(run) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    with open("params.yaml") as f:
-        params = yaml.safe_load(f)
+    params = read_params()
 
     task_name  = params["task-name"]
     train_dir  = Path("trainings", task_name)
