@@ -137,7 +137,7 @@ Write-Ok "Experimento: $TaskName"
 Write-Host ""
 
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-Copy-Item "trainings\$TaskName\checkpoint_best_total.pth" "$timestamp.pth"
+Copy-Item "trainings\training\checkpoint_best_total.pth" "$timestamp.pth"
 
 $response = Read-Host "¿Quieres eliminar los archivos del dataset, entrenamiento y resultados? (y/[n])"
 

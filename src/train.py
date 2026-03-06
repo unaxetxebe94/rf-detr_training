@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Accedemos a las rutas desde 'tp'
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     dataset_dir = Path("data", "formatted")
-    output_dir = Path("trainings", params["task-name"])
+    output_dir = Path("trainings", "training")
     run_name = f"[{now}]-saving_prob={pp['saving-prob']}-resize={pp['resize']}-apply_roi={pp['apply-roi']}-train_ratio={pp['train-ratio']}-test_ratio={pp['test-ratio']}-val_ratio={pp['val-ratio']}-augmentations_per_image={pp['augmentations-per-image']}-max_transformations_per_sample={pp['max-transforms-per-sample']}"
     # SelecciÃ³n de modelo
     models = {
