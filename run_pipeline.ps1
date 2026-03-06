@@ -60,6 +60,11 @@ $response = Read-Host "¿Quieres guardar la base de datos en git para reproducir
 if ($response -eq "y" -or $response -eq "") {
     Write-Host "Guardando estado en git..." -ForegroundColor Yellow
 
+    mkdir annotations -Force
+    Copy-Item "data\formatted\train\_annotations.coco.json" "annotations\train_annotations.json" -Force
+    Copy-Item "data\formatted\test\_annotations.coco.json" "annotations\test_annotations.json" -Force
+    Copy-Item "data\formatted\val\_annotations.coco.json" "annotations\val_annotations.json" -Force
+
     git add .
     git commit -m "Snapshot dataset antes de ejecutar experimento $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 
