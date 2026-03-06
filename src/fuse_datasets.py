@@ -104,6 +104,10 @@ class DatasetFuser:
 
         # Crear el dataset fusionado
         fused_dataset = {
+            'info': {
+                "creator": "Biele Digital"
+            },
+            'licenses': ['Only usable for members of Biele Group.'],
             'categories': fused_categories,
             'images': fused_images,
             'annotations': fused_annotations

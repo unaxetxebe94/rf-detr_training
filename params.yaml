@@ -2,8 +2,8 @@ task-name: prueba_ps
 model-type: nano
 seed: 42
 
-data-src1: C:\Users\u.etxeberria\Desktop\datasets\formatted\BasketballDataset - copia  # Dataset local
-data-src2: C:\Users\u.etxeberria\Desktop\datasets\formatted\People - copia  # Dataset remoto
+data-src1: C:\Users\u.etxeberria\Desktop\datasets\formatted\People - copia  # Dataset local
+data-src2: C:\Users\u.etxeberria\Desktop\datasets\formatted\Box detection - copia  # Dataset remoto
 
 preprocess:
   requires-preprocess: false

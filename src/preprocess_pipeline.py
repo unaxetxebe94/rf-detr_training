@@ -20,10 +20,11 @@ logger = get_logger(__name__, level=logging.DEBUG)
 
 
 def is_dataset_formatted(dataset_dir: Path) -> bool:
-    if os.path.exists(formatted_dataset_dir):
-        train_exists = os.path.exists(formatted_dataset_dir / "train")
-        test_exists = os.path.exists(formatted_dataset_dir / "test")
-        valid_exists = os.path.exists(formatted_dataset_dir / "valid")
+    dataset_dir = Path(dataset_dir)
+    if os.path.exists(dataset_dir):
+        train_exists = os.path.exists(dataset_dir / "train")
+        test_exists = os.path.exists(dataset_dir / "test")
+        valid_exists = os.path.exists(dataset_dir / "valid")
         return train_exists and test_exists and valid_exists
     else: 
         logger.warning("No se encontró la carpeta que debería contener el dataset formateado.")
@@ -110,6 +111,6 @@ if __name__ == "__main__":
         else:
             # Si no se requiere preprocesar, se asumirá que los datasets están formateados y preparados para unirlos
             if not (is_dataset_formatted(params["data-src1"]) and is_dataset_formatted(params["data-src2"])):
-                raise Exception(f"No se han encontrado los datasets formateados en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
+                raise Exception(f"No se han encontrado los datasets FORMATEADOS en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
             
     logger.info("Se ha terminado el preprocesado de los datasets. Se procede a fusionarlos.")
