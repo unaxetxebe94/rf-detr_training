@@ -8,7 +8,7 @@ import shutil
 import logging
 from pathlib import Path
 
-from utils import set_seed, read_params
+from utils import set_seed, read_params, save_mapping
 from preprocess_stage.resizer import Resizer
 from preprocess_stage.tile_creator import TileCreator
 from preprocess_stage.splitter import Splitter
@@ -33,6 +33,8 @@ if __name__ == "__main__":
     logger.info("\n\n\n====================== INICIANDO PIPELINE ======================")
 
     params = read_params()
+    seed=params["seed"]
+    set_seed(seed=seed)
 
     # Obtenemos los parámetros de preprocesamiento de params.yaml
     input_folder = params["data-src1"]
@@ -47,9 +49,7 @@ if __name__ == "__main__":
     augmentations_per_image = params["preprocess"]["augmentations-per-image"]
     max_transforms_per_sample = params["preprocess"]["max-transforms-per-sample"]
     if train_ratio + val_ratio + test_ratio != 1.0: raise Exception("Los split ratios no suman 1.0!")
-    seed = params["seed"]
     model_type = params["model-type"].lower()
-    set_seed(seed=seed)
     formatted_dataset_dir = Path("data", "formatted")
 
 
@@ -103,7 +103,10 @@ if __name__ == "__main__":
         augmenter.run()
         label_corrector.run()
     else:
-        if (is_dataset_formatted(formatted_dataset_dir)): logger.warning("No se ha encontrado el dataset formateado donde debería estar. Se procederá a fusionar los datasets de entrada asumiendo que ya están formateados y preparados para ello.")    
+        if (is_dataset_formatted(formatted_dataset_dir)): 
+            logger.warning("No se ha encontrado el dataset formateado donde debería estar. Se procederá a fusionar los datasets de entrada asumiendo que ya están formateados y preparados para ello.")    
+            save_mapping()
+            logger.info("Se ha guardado el category_map para el test")
         else:
             # Si no se requiere preprocesar, se asumirá que los datasets están formateados y preparados para unirlos
             if not (is_dataset_formatted(params["data-src1"]) and is_dataset_formatted(params["data-src2"])):

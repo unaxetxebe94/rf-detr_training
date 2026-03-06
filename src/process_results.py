@@ -231,78 +231,102 @@ def log_curves_to_wandb(run, plot_records: list[dict]) -> None:
         logger.warning("No hay registros de epochs para logar en W&B.")
         return
 
+    def _series_from_records(records, x_key: str, y_keys: list[str]):
+        """Devuelve xs, ys listas aptas para wandb.plot.line_series."""
+        xs = [r.get(x_key) for r in records]
+        ys = [[r.get(k) for r in records] for k in y_keys]
+        return xs, ys
+
     # ── Curvas de Loss ────────────────────────────────────────────────────────
-    loss_cols = ["epoch", "train_loss", "test_loss", "ema_test_loss"]
-    loss_table = wandb.Table(columns=loss_cols)
-    for r in plot_records:
-        loss_table.add_data(*[r.get(c) for c in loss_cols])
-    run.log({
-        "curves/losses": wandb.plot.line(
-            loss_table, x="epoch",
-            keys=["train_loss", "test_loss", "ema_test_loss"],
-            title="Losses por epoch",
-        )
-    })
+    loss_keys = ["train_loss", "test_loss", "ema_test_loss"]
+    xs, ys = _series_from_records(plot_records, "epoch", loss_keys)
+    try:
+        run.log({
+            "curves/losses":
+                wandb.plot.line_series(
+                    xs=xs,
+                    ys=ys,
+                    keys=loss_keys,
+                    title="Losses por epoch",
+                    xname="epoch",
+                )
+        })
+    except Exception as e:
+        logger.error(f"Error subiendo curvas de losses a W&B: {e}")
 
     # ── Loss desglosado (CE / BBox / GIoU) ───────────────────────────────────
-    loss_detail_cols = [
-        "epoch",
-        "train_loss_ce", "train_loss_bbox", "train_loss_giou",
-        "test_loss_ce",  "test_loss_bbox",  "test_loss_giou",
-    ]
-    loss_detail_table = wandb.Table(columns=loss_detail_cols)
-    for r in plot_records:
-        loss_detail_table.add_data(*[r.get(c) for c in loss_detail_cols])
-    run.log({
-        "curves/loss_components": wandb.plot.line(
-            loss_detail_table, x="epoch",
-            keys=[c for c in loss_detail_cols if c != "epoch"],
-            title="Componentes de loss por epoch",
-        )
-    })
+    # loss_detail_keys = [
+    #     "train_loss_ce", "train_loss_bbox", "train_loss_giou",
+    #     "test_loss_ce",  "test_loss_bbox",  "test_loss_giou",
+    # ]
+    # xs, ys = _series_from_records(plot_records, "epoch", loss_detail_keys)
+    # try:
+    #     run.log({
+    #         "curves/loss_components":
+    #             wandb.plot.line_series(
+    #                 xs=xs,
+    #                 ys=ys,
+    #                 keys=loss_detail_keys,
+    #                 title="Componentes de loss por epoch",
+    #                 xname="epoch",
+    #             )
+    #     })
+    # except Exception as e:
+    #     logger.error(f"Error subiendo componentes de loss a W&B: {e}")
 
     # ── mAP ──────────────────────────────────────────────────────────────────
-    map_cols = ["epoch", "map50", "map50_95", "ema_map50", "ema_map50_95", "best_map50_95"]
-    map_table = wandb.Table(columns=map_cols)
-    for r in plot_records:
-        map_table.add_data(*[r.get(c) for c in map_cols])
-    run.log({
-        "curves/mAP": wandb.plot.line(
-            map_table, x="epoch",
-            keys=["map50", "map50_95", "ema_map50", "ema_map50_95", "best_map50_95"],
-            title="mAP por epoch",
-        )
-    })
+    map_keys = ["map50", "map50_95", "ema_map50", "ema_map50_95", "best_map50_95"]
+    xs, ys = _series_from_records(plot_records, "epoch", map_keys)
+    try:
+        run.log({
+            "curves/mAP":
+                wandb.plot.line_series(
+                    xs=xs,
+                    ys=ys,
+                    keys=map_keys,
+                    title="mAP por epoch",
+                    xname="epoch",
+                )
+        })
+    except Exception as e:
+        logger.error(f"Error subiendo mAP a W&B: {e}")
 
     # ── Precision / Recall / F1 ───────────────────────────────────────────────
-    prf_cols = [
-        "epoch",
-        "precision", "recall", "f1",
+    prf_keys = [
+        # "precision", "recall", "f1",
         "ema_precision", "ema_recall", "ema_f1",
     ]
-    prf_table = wandb.Table(columns=prf_cols)
-    for r in plot_records:
-        prf_table.add_data(*[r.get(c) for c in prf_cols])
-    run.log({
-        "curves/precision_recall_f1": wandb.plot.line(
-            prf_table, x="epoch",
-            keys=[c for c in prf_cols if c != "epoch"],
-            title="Precision / Recall / F1 por epoch",
-        )
-    })
+    xs, ys = _series_from_records(plot_records, "epoch", prf_keys)
+    try:
+        run.log({
+            "curves/precision_recall_f1":
+                wandb.plot.line_series(
+                    xs=xs,
+                    ys=ys,
+                    keys=prf_keys,
+                    title="Precision / Recall / F1 por epoch",
+                    xname="epoch",
+                )
+        })
+    except Exception as e:
+        logger.error(f"Error subiendo Precision/Recall/F1 a W&B: {e}")
 
     # ── Learning rate ─────────────────────────────────────────────────────────
-    lr_cols = ["epoch", "lr"]
-    lr_table = wandb.Table(columns=lr_cols)
-    for r in plot_records:
-        lr_table.add_data(*[r.get(c) for c in lr_cols])
-    run.log({
-        "curves/learning_rate": wandb.plot.line(
-            lr_table, x="epoch",
-            keys=["lr"],
-            title="Learning rate por epoch",
-        )
-    })
+    lr_keys = ["lr"]
+    xs, ys = _series_from_records(plot_records, "epoch", lr_keys)
+    try:
+        run.log({
+            "curves/learning_rate":
+                wandb.plot.line_series(
+                    xs=xs,
+                    ys=ys,
+                    keys=lr_keys,
+                    title="Learning rate por epoch",
+                    xname="epoch",
+                )
+        })
+    except Exception as e:
+        logger.error(f"Error subiendo learning rate a W&B: {e}")
 
     logger.info("Curvas de entrenamiento subidas a W&B.")
 

@@ -50,7 +50,8 @@ if __name__ == "__main__":
         mlflow = tp["mlflow"],
         clearml = tp["clearml"],
         run_test = tp["run_test"],
-        eval_max_dets = tp["eval_max_dets"] 
+        eval_max_dets = tp["eval_max_dets"] ,
+        seed=params["seed"]
     )
     logger.info("Se ha entrenado el modelo")
 

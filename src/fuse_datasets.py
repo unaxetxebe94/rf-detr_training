@@ -4,7 +4,7 @@ import json
 import shutil
 import logging 
 from logger import get_logger
-from utils import read_params
+from utils import read_params, save_mapping
 from pathlib import Path
 
 class DatasetFuser:
@@ -209,25 +209,6 @@ if __name__ == "__main__":
 
     # Guardamos un mapping de cat_id --> cat_name para el test
     output_dir  = Path("trainings", "temp")
-    def save_mapping():
-        dataset_train_path = Path("data", "formatted", "train")
-        
-        annotations_path = dataset_train_path / "_annotations.coco.json"
-        with open(annotations_path, mode="r") as f:
-            coco = json.load(f)
-        categories = coco["categories"]
-        output = {}
-        
-        for cat in categories:
-            if cat["id"] not in output:
-                output[cat["id"]] = cat["name"]
-
-        output_path = Path("data", "temp", "category_map.json")
-        os.makedirs(output_path.parent, exist_ok=True)
-        with open(output_path, mode="w") as f:
-            json.dump(output, f)
-
-        logger.debug("Se ha guardado el category_map")
 
     save_mapping()
 
