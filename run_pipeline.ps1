@@ -61,7 +61,13 @@ if ($response -eq "y" -or $response -eq "") {
     Write-Host "Guardando estado en git..." -ForegroundColor Yellow
 
     git add .
-    git commit -m "Snapshot dataset antes de ejecutar experimento $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    git diff --cached --quiet
+    if ($LASTEXITCODE -eq 0) {
+        Write-Warn "No hay cambios para commitear."
+    } else {
+        git commit -m "Snapshot dataset antes de ejecutar experimento $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        Write-Ok "Snapshot guardado en git."
+    }
 
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "No se pudo hacer commit (quizá no hay cambios)."
@@ -103,14 +109,39 @@ else {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Preguntar si se tienen que preparar los datos
+# ─────────────────────────────────────────────────────────────────────────────
+
+Write-Step "Preparación de datos"
+
+$response = Read-Host "¿Los datos ya están preparados? ([y]/n)"
+
+if ($response -eq "y" -or $response -eq "") {
+    Write-Host "No se ejecutará ni el preprocesado ni la fusión" -ForegroundColor Yellow
+
+    $isDataPrepared = $true
+}
+elseif ($response -eq "n") {
+    Write-Warn "Se ejecutará el preprocesado"
+    $isDataPrepared = $false
+}
+else {
+    Write-Err "Respuesta inválida. Usa 'y' o 'n'."
+    exit 1
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Etapas del pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 0. Preprocesado
-Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
+if (-not $isDataPrepared) {
+    # 0. Preprocesado
+    Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
 
-# 1. Fusionar los datasets del master y slave
-Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
+    # 1. Fusionar los datasets del master y slave
+    Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
+}
 
 # 2. Entrenamiento
 Invoke-Stage "Entrenamiento" "src/train.py"
@@ -129,5 +160,4 @@ Invoke-Stage "Test" "src/test.py"
 $Elapsed = (Get-Date) - $StartTime
 Write-Step "Pipeline completado"
 Write-Ok "Tiempo total: $($Elapsed.ToString('hh\:mm\:ss'))"
-Write-Ok "Experimento: $TaskName"
 Write-Host ""

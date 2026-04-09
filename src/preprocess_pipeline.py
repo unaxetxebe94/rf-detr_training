@@ -9,7 +9,6 @@ import logging
 from pathlib import Path
 
 from utils import set_seed, read_params
-from preprocess_stage.resizer import Resizer
 from preprocess_stage.tile_creator import TileCreator
 from preprocess_stage.splitter import Splitter
 from preprocess_stage.augmenter import Augmenter
@@ -63,18 +62,14 @@ if __name__ == "__main__":
             "large": 704
         }
         # Preparamos los tres pasos del pipeline
-        resizer = Resizer(
-            input_folder=input_folder,
-            output_folder=str(Path("data", "formatted", "resized_temporal")),
-            resize_factor=resize,
-            apply_roi=apply_roi
-        )
         tile_creator = TileCreator(
-            in_dir_path=input_folder if resize == 1.0 else str(Path("data", "formatted", "resized_temporal")),
+            in_dir_path=input_folder,
             out_dir_path=str(formatted_dataset_dir),
             tile_size=tile_size_mapper[model_type],
             saving_prob=saving_prob,
-            n_jobs=os.cpu_count() // 2
+            n_jobs=os.cpu_count() // 2,
+            resize_factor=resize,
+            crop=apply_roi
         )
         splitter = Splitter(
             dataset_dir=str(formatted_dataset_dir),
@@ -96,9 +91,7 @@ if __name__ == "__main__":
             dataset_path=str(formatted_dataset_dir)
         )
         # Ejecutamos el pipeline
-        if (resize != 1.0): resizer.run()
         tile_creator.run()
-        if (resize != 1.0): shutil.rmtree(Path("data", "formatted", "resized_temporal"))
         splitter.run()
         augmenter.run()
         label_corrector.run()
