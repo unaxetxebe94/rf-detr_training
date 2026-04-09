@@ -7,7 +7,6 @@
 
 .EXAMPLE
     .\run_pipeline.ps1
-    .\run_pipeline.ps1 -SkipPreprocess -SkipDVC
     .\run_pipeline.ps1 -CondaEnv "mi-entorno"
 #>
 
@@ -59,6 +58,11 @@ $response = Read-Host "¿Quieres guardar la base de datos en git para reproducir
 
 if ($response -eq "y" -or $response -eq "") {
     Write-Host "Guardando estado en git..." -ForegroundColor Yellow
+
+    mkdir annotations -Force
+    Copy-Item "data\formatted\train\_annotations.coco.json" "annotations\train_annotations.json" -Force
+    Copy-Item "data\formatted\test\_annotations.coco.json" "annotations\test_annotations.json" -Force
+    Copy-Item "data\formatted\val\_annotations.coco.json" "annotations\val_annotations.json" -Force
 
     git add .
     git diff --cached --quiet
@@ -161,3 +165,30 @@ $Elapsed = (Get-Date) - $StartTime
 Write-Step "Pipeline completado"
 Write-Ok "Tiempo total: $($Elapsed.ToString('hh\:mm\:ss'))"
 Write-Host ""
+
+$timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+Copy-Item "trainings\training\checkpoint_best_total.pth" "$timestamp.pth"
+
+$response = Read-Host "¿Quieres eliminar los archivos del dataset, entrenamiento y resultados? (y/[n])"
+
+if ($response -eq "y") {
+    Write-Host "Eliminando archivos..." -ForegroundColor Yellow
+
+    Remove-Item -r data\*
+    Remove-Item -r .\trainings
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "No se pudieron eliminar todos los archivos"
+        Write-Error "Recuerda eliminar archivos para que el espacio en disco no se llene"
+    }
+    else {
+        Write-Ok "Archivos eliminados."
+    }
+}
+elseif ($response -eq "n" -or $response -eq "") {
+    Write-Warn "Los datos se mantendrán en disco."
+}
+else {
+    Write-Err "Respuesta inválida. Usa 'y' o 'n'."
+    exit 1
+}

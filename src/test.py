@@ -1,4 +1,3 @@
-
 import os
 import yaml
 import shutil
@@ -7,7 +6,7 @@ import wandb
 import numpy as np
 from PIL import Image
 from pathlib import Path
-from utils import set_seed
+from utils import set_seed, read_params
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 import logging
 from logger import get_logger
@@ -15,8 +14,7 @@ from logger import get_logger
 logger = get_logger(__name__, level=logging.DEBUG)
 
 # Leer el yaml de parÃ¡metros para saber a que run pertenece en entrenamiento
-with open("params.yaml") as f:
-    params = yaml.safe_load(f)
+params = read_params()
 set_seed(params["seed"])
 
 run_name_path = Path("trainings", "temp", "run_info.json")
@@ -56,13 +54,23 @@ with open(category_map_path, mode="r") as f:
 category_map = {int(id): cat for id, cat in category_map_.items()}
 
 # Obtenemos las imÃ¡genes del test para ver las predicciones
-test_dir = Path(params["data-src"]) if params["preprocess"]["requires-preprocess"] else Path("data", f'{params["task-name"]}_formatted', "test")
+test_dir = Path("data", 'formatted', "test")
 os.makedirs(test_dir, exist_ok=True)
 files_in_test_dir = os.listdir(test_dir)
 images_to_test = []
 for file in files_in_test_dir:
     if file.endswith((".jpg", ".jpeg", ".png", ".webp", ".tiff")):
         images_to_test.append(str(test_dir / file))
+# Leemos los gts
+with open(test_dir / "_annotations.coco.json") as f:
+    coco_gts = json.load(f)
+
+# Construimos un dict {filename -> lista de anotaciones COCO} para acceso rápido
+coco_images = {img["id"]: img["file_name"] for img in coco_gts["images"]}
+gt_by_filename = {}
+for ann in coco_gts["annotations"]:
+    fname = coco_images[ann["image_id"]]
+    gt_by_filename.setdefault(fname, []).append(ann)
 
 # Hacemos las predicciones y evaluÃ¡mos el modelo
 log_list = []
@@ -132,11 +140,34 @@ for img_path in images_to_test:
             }
             box_data.append(bd)
 
+    # Construir ground truth box_data desde las anotaciones COCO
+    # Las anotaciones COCO usan formato [x, y, width, height] en píxeles
+    gt_box_data = []
+    img_filename = Path(img_path).name
+    for ann in gt_by_filename.get(img_filename, []):
+        x, y, bw, bh = ann["bbox"]
+        x1_gt = float(max(0.0, min(x, w)))
+        y1_gt = float(max(0.0, min(y, h)))
+        x2_gt = float(max(0.0, min(x + bw, w)))
+        y2_gt = float(max(0.0, min(y + bh, h)))
+        cat_id = ann["category_id"]
+        gt_bd = {
+            "position": {"minX": x1_gt, "minY": y1_gt, "maxX": x2_gt, "maxY": y2_gt},
+            "class_id": int(cat_id),
+            "box_caption": category_map.get(int(cat_id), str(int(cat_id))),
+            "domain": "pixel",
+        }
+        gt_box_data.append(gt_bd)
+
     # Si no hay boxes, box_data queda vacío — no rompe la visualización
     img_log = wandb.Image(pil_img, boxes={
         "predictions": {
             "box_data": box_data,
             "class_labels": category_map  # debe ser {int: "label"}
+        },
+        "ground_truth": {
+            "box_data": gt_box_data,
+            "class_labels": category_map
         }
     })
     log_list.append(img_log)
