@@ -1,5 +1,6 @@
 import json
 import os
+import gc
 import copy
 import yaml
 import logging
@@ -197,6 +198,8 @@ class Resizer:
             out_w=resized.width,
             out_h=resized.height,
         )
+
+        gc.collect()
 
         return new_info, new_anns
 

@@ -110,7 +110,7 @@ else {
 Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
 
 # 1. Fusionar los datasets del master y slave
-# Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
+Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
 
 # 2. Entrenamiento
 Invoke-Stage "Entrenamiento" "src/train.py"

@@ -223,7 +223,8 @@ class TileCreator:
                 )
 
                 # Si el tile no tiene anotaciones, lo saltamos completamente con cierta probabilidad
-                if not tile_anns and self.saving_prob > random.random():
+                if not tile_anns and self.saving_prob < random.random():
+                    print("No se ha guardado la imagen")
                     continue
 
                 # ── 2. Solo ahora extraemos el tile de la imagen grande ──────

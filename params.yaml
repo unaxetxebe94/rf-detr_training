@@ -1,14 +1,14 @@
-task-name: prueba_ps
-model-type: nano
+task-name: prueba_rfdetr
+model-type: large
 seed: 42
 
-data-src1: C:\Users\u.etxeberria\Desktop\datasets\formatted\BasketballDataset - copia  # Dataset local
-data-src2: C:\Users\u.etxeberria\Desktop\datasets\formatted\People - copia  # Dataset remoto
+data-src1: E:\Images for labelling\Top  # Dataset local
+data-src2: E:\slave_datasets\formatted\formatted  # Dataset remoto
 
 preprocess:
-  requires-preprocess: false
-  saving-prob: 0.01  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
-  resize: 1.0
+  requires-preprocess: true
+  saving-prob: 0.05  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
+  resize: 0.5
   apply-roi: false
   train-ratio: 0.7
   test-ratio: 0.15
@@ -21,11 +21,11 @@ train:
   lr_encoder: 0.00015
   batch_size: 8
   grad_accum_steps: 3
-  epochs: 3
+  epochs: 100
   weight_decay: 1e-4
   tensorboard: false
   wandb: true
-  project: prueba_ps
+  project: top
   mlflow: false
   clearml: false
   run_test: true
