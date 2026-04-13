@@ -206,7 +206,7 @@ if __name__ == "__main__":
     params = read_params()
 
     DatasetFuser.fuse_splitted_datasets(
-        dataset1_path=params["data-src1"],
+        dataset1_path=Path("data", "preprocessed_src1"),
         dataset2_path=params["data-src2"],
         output_path=r"data\formatted"
     )

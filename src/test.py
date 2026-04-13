@@ -45,7 +45,14 @@ models = {
         "medium": RFDETRMedium,
         "large": RFDETRLarge
     }
-model = models[str.lower(params["model-type"])](pretrain_weights=f"trainings/{params['task-name']}/checkpoint_best_total.pth")
+model = None
+for ckpt in ["checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint_best_regular.pth"]:
+    try:
+        model = models[str.lower(params["model-type"])](pretrain_weights=f"trainings/{params['task-name']}/{ckpt}")
+        break
+    except Exception as e:
+        print(f"Falló {ckpt}: {e}")
+if model == None: raise Exception("No se ha cargado el modelo")
 
 # Obtenemos category_map
 category_map_path = Path("data", "temp", "category_map.json")

@@ -19,11 +19,10 @@ logger = get_logger(__name__, level=logging.DEBUG)
 
 
 def is_dataset_formatted(dataset_dir: Path) -> bool:
-    dataset_dir = Path(dataset_dir)
-    if os.path.exists(dataset_dir):
-        train_exists = os.path.exists(dataset_dir / "train")
-        test_exists = os.path.exists(dataset_dir / "test")
-        valid_exists = os.path.exists(dataset_dir / "valid")
+    if os.path.exists(formatted_dataset_dir):
+        train_exists = os.path.exists(formatted_dataset_dir / "train")
+        test_exists = os.path.exists(formatted_dataset_dir / "test")
+        valid_exists = os.path.exists(formatted_dataset_dir / "valid")
         return train_exists and test_exists and valid_exists
     else: 
         logger.warning("No se encontró la carpeta que debería contener el dataset formateado.")
@@ -33,8 +32,6 @@ if __name__ == "__main__":
     logger.info("\n\n\n====================== INICIANDO PIPELINE ======================")
 
     params = read_params()
-    seed=params["seed"]
-    set_seed(seed=seed)
 
     # Obtenemos los parámetros de preprocesamiento de params.yaml
     input_folder = params["data-src1"]
@@ -49,8 +46,10 @@ if __name__ == "__main__":
     augmentations_per_image = params["preprocess"]["augmentations-per-image"]
     max_transforms_per_sample = params["preprocess"]["max-transforms-per-sample"]
     if train_ratio + val_ratio + test_ratio != 1.0: raise Exception("Los split ratios no suman 1.0!")
+    seed = params["seed"]
     model_type = params["model-type"].lower()
-    formatted_dataset_dir = Path("data", "formatted")
+    set_seed(seed=seed)
+    formatted_dataset_dir = Path("data", "preprocessed_src1")
 
 
     # Inicializamos los pasos del pipeline si se requiere
@@ -97,13 +96,10 @@ if __name__ == "__main__":
         augmenter.run()
         label_corrector.run()
     else:
-        if (is_dataset_formatted(formatted_dataset_dir)): 
-            logger.warning("No se ha encontrado el dataset formateado donde debería estar. Se procederá a fusionar los datasets de entrada asumiendo que ya están formateados y preparados para ello.")    
-            save_mapping()
-            logger.info("Se ha guardado el category_map para el test")
+        if (is_dataset_formatted(formatted_dataset_dir)): logger.warning("No se ha encontrado el dataset formateado donde debería estar. Se procederá a fusionar los datasets de entrada asumiendo que ya están formateados y preparados para ello.")    
         else:
             # Si no se requiere preprocesar, se asumirá que los datasets están formateados y preparados para unirlos
             if not (is_dataset_formatted(params["data-src1"]) and is_dataset_formatted(params["data-src2"])):
-                raise Exception(f"No se han encontrado los datasets FORMATEADOS en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
+                raise Exception(f"No se han encontrado los datasets formateados en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
             
     logger.info("Se ha terminado el preprocesado de los datasets. Se procede a fusionarlos.")

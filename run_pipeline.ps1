@@ -62,7 +62,7 @@ if ($response -eq "y" -or $response -eq "") {
     mkdir annotations -Force
     Copy-Item "data\formatted\train\_annotations.coco.json" "annotations\train_annotations.json" -Force
     Copy-Item "data\formatted\test\_annotations.coco.json" "annotations\test_annotations.json" -Force
-    Copy-Item "data\formatted\val\_annotations.coco.json" "annotations\val_annotations.json" -Force
+    Copy-Item "data\formatted\valid\_annotations.coco.json" "annotations\valid_annotations.json" -Force
 
     git add .
     git diff --cached --quiet
