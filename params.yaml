@@ -1,5 +1,5 @@
 task-name: prueba_rfdetr
-model-type: large
+model-type: nano
 seed: 42
 
 data-src1: E:\Images for labelling\Top  # Dataset local
