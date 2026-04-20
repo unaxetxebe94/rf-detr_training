@@ -146,12 +146,12 @@ class Augmenter:
     """
 
     ALL_AUGMENTATIONS = [
-        "hflip", "vflip", "rot90", "rot180",
+        "hflip", "vflip",
         "brightness", "contrast", "saturation", "hue", "blur",
     ]
 
     # Transformaciones que modifican la geometría
-    GEOMETRIC = {"hflip", "vflip", "rot90", "rot180"}
+    GEOMETRIC = {"hflip", "vflip"}
 
     def __init__(
         self,

@@ -4,7 +4,7 @@ import shutil
 import numpy as np
 from pathlib import Path
 from collections import defaultdict
-from rfdetr import RFDETRLarge
+from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRSmall, RFDETRNano
 from utils import read_params
 import cv2
 
@@ -201,8 +201,8 @@ def render_image(img_path, gt_boxes, gt_labels, gt_label_names,
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    IOU_THRESHOLD      = 0.5
-    SCORE_THRESHOLD    = 0.3
+    IOU_THRESHOLD      = 0.3
+    SCORE_THRESHOLD    = 0.5
     IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
 
     # ── Model ──────────────────────────────────
@@ -223,7 +223,7 @@ if __name__ == "__main__":
         gt_by_img[ann["image_id"]].append((ann["bbox"], ann["category_id"]))
 
     # ── Output folders ─────────────────────────
-    out_base = "test_results"
+    out_base = Path("test_results")
     for folder in ("TP", "FP", "FN", "misclassified"):
         (out_base / folder).mkdir(parents=True, exist_ok=True)
 

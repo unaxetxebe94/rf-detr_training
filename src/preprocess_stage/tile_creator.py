@@ -1,5 +1,6 @@
 import os
 import re
+import cv2
 import json
 import random
 import logging
@@ -86,29 +87,36 @@ class TileCreator:
     # ROI detection (operates on a small thumbnail – fast for huge TIFFs)
     # ------------------------------------------------------------------ #
 
-    def _detect_roi(
-        self, img_path: str, orig_w: int, orig_h: int
-    ) -> _ROI:
+    def _detect_roi(self, img_path: str, orig_w: int, orig_h: int):
         THUMB_SIZE = 1024
         thumb = pyvips.Image.thumbnail(img_path, THUMB_SIZE)
         scale_x = orig_w / thumb.width
         scale_y = orig_h / thumb.height
 
-        gray = thumb.colourspace("b-w") if thumb.bands > 1 else thumb
-        arr: np.ndarray = np.ndarray(
-            buffer=gray.write_to_memory(),
-            dtype=np.uint8,
-            shape=(gray.height, gray.width, gray.bands),
-        ).squeeze()
+        if thumb.bands >= 3:
+            blue = thumb[2]
+        else:
+            blue = thumb  # fallback si ya es monocanal
 
-        mask = arr > self.roi_threshold
+        arr = np.ndarray(
+            buffer=blue.write_to_memory(),
+            dtype=np.uint8,
+            shape=(blue.height, blue.width),
+        )
+
+        # 🔥 Threshold automático (Otsu)
+        _, thresh = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        mask = thresh > 0
+
+        # Debug útil
+        self.logger.debug(f"{img_path}: porcentaje máscara = {mask.mean():.3f}")
+
         rows_any = mask.any(axis=1)
         cols_any = mask.any(axis=0)
 
         if not rows_any.any():
             self.logger.warning(
-                f"{img_path}: no ROI found (threshold={self.roi_threshold})."
-                " Falling back to full image."
+                f"{img_path}: no ROI found. Falling back to full image."
             )
             return _ROI(0, 0, orig_w, orig_h)
 

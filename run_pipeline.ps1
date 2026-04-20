@@ -54,56 +54,16 @@ function Invoke-Stage {
 Write-Step "Versionado del dataset"
 
 # COMMIT
-$response = Read-Host "¿Quieres guardar la base de datos en git para reproducir el experimento (COMMIT)? ([y]/n)"
-
-if ($response -eq "y" -or $response -eq "") {
-    Write-Host "Guardando estado en git..." -ForegroundColor Yellow
-
-    mkdir annotations -Force
-    Copy-Item "data\formatted\train\_annotations.coco.json" "annotations\train_annotations.json" -Force
-    Copy-Item "data\formatted\test\_annotations.coco.json" "annotations\test_annotations.json" -Force
-    Copy-Item "data\formatted\valid\_annotations.coco.json" "annotations\valid_annotations.json" -Force
-
-    git add .
-    git diff --cached --quiet
-    if ($LASTEXITCODE -eq 0) {
-        Write-Warn "No hay cambios para commitear."
-    } else {
-        git commit -m "Snapshot dataset antes de ejecutar experimento $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        Write-Ok "Snapshot guardado en git."
-    }
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "No se pudo hacer commit (quizá no hay cambios)."
-    }
-    else {
-        Write-Ok "Snapshot guardado en git."
-    }
-
+$commit = Read-Host "¿Quieres guardar la base de datos en git para reproducir el experimento (COMMIT)? ([y]/n)"
+$push = "n"
+$commitMessage = ""
+if ($commit -eq "y" -or $commit -eq "") {
+    # Mensaje del commit
+    $commitMessage = Read-Host "Escribe el mensaje del commit"
     # PUSH
-    $response = Read-Host "¿Quieres hacer PUSH de los cambios? ([y]/n)"
-
-    if ($response -eq "y" -or $response -eq "") {
-        Write-Host "Subiendo cambios al remoto..." -ForegroundColor Yellow
-
-        git push
-
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "No se pudo hacer push"
-        }
-        else {
-            Write-Ok "Snapshot guardado en git."
-        }
-    }
-    elseif ($response -eq "n") {
-        Write-Warn "Se ejecutará el pipeline sin versionar el dataset."
-    }
-    else {
-        Write-Err "Respuesta inválida. Usa 'y' o 'n'."
-        exit 1
-    }
+    $push = Read-Host "¿Quieres hacer PUSH de los cambios? ([y]/n)"
 }
-elseif ($response -eq "n") {
+elseif ($commit -eq "n") {
     Write-Warn "Se ejecutará el pipeline sin versionar el dataset."
 }
 else {
@@ -119,8 +79,9 @@ else {
 Write-Step "Preparación de datos"
 
 $response = Read-Host "¿Los datos ya están preparados? ([y]/n)"
-
+$useSlave = $false
 if ($response -eq "y" -or $response -eq "") {
+    $useSlave = Read-Host "¿Quieres usar las imágenes del Slave? ([y]/n)"
     Write-Host "No se ejecutará ni el preprocesado ni la fusión" -ForegroundColor Yellow
 
     $isDataPrepared = $true
@@ -143,8 +104,22 @@ if (-not $isDataPrepared) {
     # 0. Preprocesado
     Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
 
-    # 1. Fusionar los datasets del master y slave
-    Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
+    if ($useSlave) {
+        # 1. Fusionar los datasets del master y slave
+        Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
+    } else {
+        $basePath = "E:\rf-detr_training\data"
+        $formattedPath = Join-Path $basePath "formatted"
+        $sourcePath = Join-Path $basePath "preprocessed_src1"
+
+        # Si existe 'formatted', eliminarlo primero
+        if (Test-Path $formattedPath) {
+            Remove-Item $formattedPath -Recurse -Force
+        }
+
+        # Renombrar carpeta
+        Rename-Item $sourcePath "formatted"
+    }
 }
 
 # 2. Entrenamiento
@@ -169,26 +144,49 @@ Write-Host ""
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 Copy-Item "trainings\training\checkpoint_best_total.pth" "$timestamp.pth"
 
-$response = Read-Host "¿Quieres eliminar los archivos del dataset, entrenamiento y resultados? (y/[n])"
 
-if ($response -eq "y") {
-    Write-Host "Eliminando archivos..." -ForegroundColor Yellow
+# Lo de git
+if ($commit -eq "y" -or $commit -eq "") {
+    Write-Host "Guardando estado en git..." -ForegroundColor Yellow
 
-    Remove-Item -r data\*
-    Remove-Item -r .\trainings
+    mkdir annotations -Force
+    Copy-Item "data\formatted\train\_annotations.coco.json" "annotations\train_annotations.json" -Force
+    Copy-Item "data\formatted\test\_annotations.coco.json" "annotations\test_annotations.json" -Force
+    Copy-Item "data\formatted\valid\_annotations.coco.json" "annotations\valid_annotations.json" -Force
+
+    git add .
+    git diff --cached --quiet
+    if ($LASTEXITCODE -eq 0) {
+        Write-Warn "No hay cambios para commitear."
+    } else {
+        git commit -m "Snapshot dataset antes de ejecutar experimento $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'): $($commitMessage)"
+    }
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Warn "No se pudieron eliminar todos los archivos"
-        Write-Error "Recuerda eliminar archivos para que el espacio en disco no se llene"
+        Write-Warn "No se pudo hacer commit (quizá no hay cambios)."
     }
     else {
-        Write-Ok "Archivos eliminados."
+        Write-Ok "Snapshot guardado en git."
     }
-}
-elseif ($response -eq "n" -or $response -eq "") {
-    Write-Warn "Los datos se mantendrán en disco."
-}
-else {
-    Write-Err "Respuesta inválida. Usa 'y' o 'n'."
-    exit 1
+
+    # PUSH
+    if ($push -eq "y" -or $push -eq "") {
+        Write-Host "Subiendo cambios al remoto..." -ForegroundColor Yellow
+
+        git push
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "No se pudo hacer push"
+        }
+        else {
+            Write-Ok "Snapshot guardado en git."
+        }
+    }
+    elseif ($push -eq "n") {
+        Write-Warn "Se ejecutará el pipeline sin versionar el dataset."
+    }
+    else {
+        Write-Err "Respuesta inválida. Usa 'y' o 'n'."
+        exit 1
+    }
 }
