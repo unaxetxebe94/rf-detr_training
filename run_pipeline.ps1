@@ -79,16 +79,22 @@ else {
 Write-Step "Preparación de datos"
 
 $response = Read-Host "¿Los datos ya están preparados? ([y]/n)"
-$useSlave = $false
+$useSlave = "n"
 if ($response -eq "y" -or $response -eq "") {
-    $useSlave = Read-Host "¿Quieres usar las imágenes del Slave? ([y]/n)"
-    Write-Host "No se ejecutará ni el preprocesado ni la fusión" -ForegroundColor Yellow
-
     $isDataPrepared = $true
+    Write-Host "No se ejecutará ni el preprocesado ni la fusión" -ForegroundColor Yellow
 }
 elseif ($response -eq "n") {
     Write-Warn "Se ejecutará el preprocesado"
     $isDataPrepared = $false
+
+    $useSlave = Read-Host "¿Quieres usar las imágenes del Slave? ([y]/n)"
+    if ($useSlave -eq "y" -or $useSlave -eq "") {
+        Write-Warn "Se funsionarán los datasets"
+    } elseif ($useSlave -ne "n") {
+        Write-Err "Respuesta inválida. Usa 'y' o 'n'."
+        exit 1
+    }
 }
 else {
     Write-Err "Respuesta inválida. Usa 'y' o 'n'."

@@ -378,7 +378,7 @@ def main():
     params = read_params()
 
     task_name  = params["task-name"]
-    train_dir  = Path("trainings", task_name)
+    train_dir  = Path("trainings", "training")
     output_dir = Path("trainings", "temp")
     output_dir.mkdir(parents=True, exist_ok=True)
 

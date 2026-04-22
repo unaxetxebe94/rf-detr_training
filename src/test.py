@@ -48,7 +48,7 @@ models = {
 model = None
 for ckpt in ["checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint_best_regular.pth"]:
     try:
-        model = models[str.lower(params["model-type"])](pretrain_weights=f"trainings/{params['task-name']}/{ckpt}")
+        model = models[str.lower(params["model-type"])](pretrain_weights=f"trainings/training/{ckpt}")
         break
     except Exception as e:
         print(f"Falló {ckpt}: {e}")

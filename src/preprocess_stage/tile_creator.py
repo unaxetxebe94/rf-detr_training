@@ -69,7 +69,7 @@ class TileCreator:
         resize_factor: float = 1.0,
         crop: bool = False,
         roi_threshold: int = 20,
-        roi_padding: int = 0,
+        roi_padding: int = 100,
     ):
         self.in_dir_path = in_dir_path
         self.out_dir_path = out_dir_path
@@ -373,12 +373,14 @@ class TileCreator:
         # ── 6. Tile ──────────────────────────────────────────────────────
         for tile_y in range(0, img_h, self.tile_size):
             for tile_x in range(0, img_w, self.tile_size):
-                tile_w = min(self.tile_size, img_w - tile_x)
-                tile_h = min(self.tile_size, img_h - tile_y)
+                actual_x = min(tile_x, max(0, img_w - self.tile_size))
+                actual_y = min(tile_y, max(0, img_h - self.tile_size))
+                tile_w = min(self.tile_size, img_w)
+                tile_h = min(self.tile_size, img_h)
 
                 # Compute annotations before any I/O
                 tile_anns, next_ann_id = self._calculate_overlap(
-                    tile_x, tile_y, tile_w, tile_h,
+                    actual_x, actual_y, tile_w, tile_h,
                     curr_img_id, curr_ann_id,
                     geometries, ann_map, tree,
                 )
@@ -388,11 +390,11 @@ class TileCreator:
                     continue
 
                 # Extract tile region from the already-transformed in-memory image
-                final_tile_name = f"{base_name}_tile_{tile_x}_{tile_y}.png"
+                final_tile_name = f"{base_name}_tile_{actual_x}_{actual_y}.png"
                 final_tile_path = os.path.join(self.out_dir_path, final_tile_name)
 
                 try:
-                    tile_img = img.crop(tile_x, tile_y, tile_w, tile_h)
+                    tile_img = img.crop(actual_x, actual_y, tile_w, tile_h)
 
                     # Discard near-black tiles (border artefacts, etc.)
                     if tile_img.avg() < self.black_threshold:

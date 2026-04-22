@@ -1,5 +1,5 @@
 task-name: prueba_rfdetr
-model-type: large
+model-type: nano
 seed: 42
 
 data-src1: E:\Images for labelling\Top  # Dataset local
@@ -9,7 +9,7 @@ preprocess:
   requires-preprocess: true
   saving-prob: 0.01  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
   resize: 0.33
-  apply-roi: false
+  apply-roi: true
   train-ratio: 0.7
   test-ratio: 0.15
   val-ratio: 0.15
@@ -21,9 +21,9 @@ train:
   lr_encoder: 0.00015
   batch_size: 4
   grad_accum_steps: 6
-  epochs: 30
+  epochs: 15
   weight_decay: 1e-4
-  tensorboard: false
+  tensorboard: true
   wandb: true
   project: top
   mlflow: false

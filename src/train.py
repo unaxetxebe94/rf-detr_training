@@ -51,7 +51,6 @@ if __name__ == "__main__":
         clearml = tp["clearml"],
         run_test = tp["run_test"],
         eval_max_dets = tp["eval_max_dets"] ,
-        resume=r"trainings\training\checkpoint0009.pth",
         seed=params["seed"]
     )
     logger.info("Se ha entrenado el modelo")
