@@ -32,8 +32,8 @@ def convert_to_single_class(input_path, output_path, new_class_name="defecto"):
 
 
 if __name__ == "__main__":
-    INPUT = r"E:\rf-detr_training\data\formatted\train\_annotations.coco.json"
-    OUTPUT = r"E:\rf-detr_training\data\formatted\train\_annotations.coco.single_class.json"
+    INPUT = r"E:\rf-detr_training\data\top_and_bottom\valid\_annotations.coco.json"
+    OUTPUT = r"E:\rf-detr_training\data\top_and_bottom\valid\_annotations.coco.single_class.json"
     CLASS_NAME = "defect"
 
     convert_to_single_class(INPUT, OUTPUT, CLASS_NAME)

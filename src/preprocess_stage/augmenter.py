@@ -145,13 +145,16 @@ class Augmenter:
         Si True, las imágenes originales también se incluyen en el JSON de salida.
     """
 
+    # ALL_AUGMENTATIONS = [
+    #     "hflip", "vflip",
+    #     "brightness", "contrast", "saturation", "hue", "blur",
+    # ]
     ALL_AUGMENTATIONS = [
-        "hflip", "vflip",
         "brightness", "contrast", "saturation", "hue", "blur",
     ]
 
     # Transformaciones que modifican la geometría
-    GEOMETRIC = {"hflip", "vflip"}
+    # GEOMETRIC = {"hflip", "vflip"}
 
     def __init__(
         self,

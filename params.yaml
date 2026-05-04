@@ -3,12 +3,12 @@ model-type: nano
 seed: 42
 
 data-src1: E:\Images for labelling\Top  # Dataset local
-data-src2: E:\slave_datasets\formatted_033  # Dataset remoto
+data-src2: E:\slave_datasets\formatted (1)\formatted  # Dataset remoto
 
 preprocess:
   requires-preprocess: true
-  saving-prob: 0.01  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
-  resize: 0.33
+  saving-prob: 0.5  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
+  resize: 0.181818
   apply-roi: true
   train-ratio: 0.7
   test-ratio: 0.15

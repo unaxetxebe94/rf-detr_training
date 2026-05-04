@@ -110,7 +110,7 @@ if (-not $isDataPrepared) {
     # 0. Preprocesado
     Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
 
-    if ($useSlave) {
+    if ($useSlave -eq "y") {
         # 1. Fusionar los datasets del master y slave
         Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
     } else {
