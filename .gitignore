@@ -26,4 +26,4 @@ __pycache__
 # La carpeta con los datos
 data
 models
-test_results
+test_results*

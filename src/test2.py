@@ -206,7 +206,7 @@ if __name__ == "__main__":
     IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
 
     # ── Model ──────────────────────────────────
-    model = RFDETRNano(pretrain_weights="trainings/tr10_mc_nano_13defects_prob50_checkpoint_best_total.pth")
+    model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\tr11_mc_nano_13defects_prob50_large_checkpoint_best_total.pth")
 
     # ── Dataset ────────────────────────────────
     test_dir = Path("data/formatted/test")
