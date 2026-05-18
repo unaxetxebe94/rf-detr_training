@@ -32,6 +32,10 @@ def box_xywh_to_xyxy(box):
     return [x, y, x + w, y + h]
 
 
+def xyxy_to_xywh(b):
+    return [b[0], b[1], b[2] - b[0], b[3] - b[1]]
+
+
 # ──────────────────────────────────────────────
 # Match predictions → ground-truths for one image
 # ──────────────────────────────────────────────
@@ -197,13 +201,81 @@ def render_image(img_path, gt_boxes, gt_labels, gt_label_names,
 
 
 # ──────────────────────────────────────────────
+# Per-class optimal threshold search
+# ──────────────────────────────────────────────
+
+def find_optimal_thresholds(raw_preds_by_img, gt_by_img, category_id_to_name,
+                             iou_threshold=0.5,
+                             threshold_range=None):
+    """
+    Sweep confidence thresholds per class and return the one that maximises F1.
+
+    raw_preds_by_img : dict  img_id -> [(box_xywh, class_id, score), ...]
+    gt_by_img        : dict  img_id -> [(box_xywh, class_id), ...]
+    Returns          : dict  class_id -> best_threshold (float)
+    """
+    if threshold_range is None:
+        threshold_range = np.arange(0.05, 1.0, 0.05)
+
+    all_classes = {lbl for pairs in gt_by_img.values() for _, lbl in pairs}
+
+    best_thresholds = {}
+    print("\nSearching optimal confidence threshold per class …")
+
+    for cls in sorted(all_classes):
+        best_f1 = -1.0
+        best_thresh = 0.5
+
+        for thresh in threshold_range:
+            tp = fp = fn = 0
+
+            for img_id, gt_pairs in gt_by_img.items():
+                gt_boxes_cls = [b for b, l in gt_pairs if l == cls]
+                preds_for_img = raw_preds_by_img.get(img_id, [])
+                pred_boxes_cls = [b for b, l, s in preds_for_img
+                                  if l == cls and s >= thresh]
+
+                # Greedy match (sorted by order already at collection time)
+                matched_gt = set()
+                for pb in pred_boxes_cls:
+                    best_iou, best_gi = 0.0, -1
+                    for gi, gb in enumerate(gt_boxes_cls):
+                        if gi in matched_gt:
+                            continue
+                        iou = compute_iou(pb, gb)
+                        if iou > best_iou:
+                            best_iou, best_gi = iou, gi
+                    if best_iou >= iou_threshold and best_gi != -1:
+                        matched_gt.add(best_gi)
+                        tp += 1
+                    else:
+                        fp += 1
+                fn += len(gt_boxes_cls) - len(matched_gt)
+
+            precision = tp / (tp + fp + 1e-9)
+            recall    = tp / (tp + fn + 1e-9)
+            f1        = 2 * precision * recall / (precision + recall + 1e-9)
+
+            if f1 > best_f1:
+                best_f1    = f1
+                best_thresh = thresh
+
+        best_thresholds[cls] = float(round(best_thresh, 4))
+        cls_name = category_id_to_name.get(cls, str(cls))
+        print(f"  {cls_name:<25} thresh={best_thresh:.2f}  F1={best_f1:.4f}")
+
+    return best_thresholds
+
+
+# ──────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     IOU_THRESHOLD      = 0.3
-    SCORE_THRESHOLD    = 0.5
+    RAW_THRESHOLD      = 0.05   # collect all candidates; per-class thresholds applied later
     IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
+    DEFAULT_THRESHOLD  = 0.5    # fallback for classes not seen in GT
 
     # ── Model ──────────────────────────────────
     model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\tr11_mc_nano_13defects_prob50_large_checkpoint_best_total.pth")
@@ -227,44 +299,90 @@ if __name__ == "__main__":
     for folder in ("TP", "FP", "FN", "misclassified"):
         (out_base / folder).mkdir(parents=True, exist_ok=True)
 
-    # ── Accumulators for metrics ───────────────
-    all_tp = all_fp = all_fn = 0
-    all_preds_for_map = []    # (img_id, box, label, score)
-    gt_for_map = {}           # img_id → [(box, label), …]
-
     test_img_names = [
         p for p in os.listdir(test_dir)
         if p.lower().endswith((".tiff", ".jpg", ".png"))
     ]
+
+    # ══════════════════════════════════════════════
+    # Phase 1: Collect raw predictions (low threshold)
+    # ══════════════════════════════════════════════
+    print(f"\n{'='*45}")
+    print("  PHASE 1 — Collecting raw predictions")
+    print(f"{'='*45}")
+
+    raw_preds_by_img = {}   # img_id → [(box_xywh, label, score), …]
+    gt_eval = {}            # img_id → [(box_xywh, label), …]
+
+    for i, test_img_name in enumerate(test_img_names, 1):
+        test_img_path = test_dir / test_img_name
+        img_id = filename_to_id.get(test_img_name)
+
+        gts = gt_by_img.get(img_id, [])
+        gt_eval[img_id] = [(g[0], g[1]) for g in gts]
+
+        prediction = model.predict(str(test_img_path), threshold=RAW_THRESHOLD)
+
+        pred_boxes_xyxy = [list(b) for b in prediction.xyxy]
+        pred_labels     = list(prediction.class_id)
+        pred_scores     = list(prediction.confidence)
+        pred_boxes_xywh = [xyxy_to_xywh(b) for b in pred_boxes_xyxy]
+
+        raw_preds_by_img[img_id] = list(zip(pred_boxes_xywh, pred_labels, pred_scores))
+        print(f"  [{i}/{len(test_img_names)}] {test_img_name}  ({len(pred_boxes_xywh)} raw detections)")
+
+    # ══════════════════════════════════════════════
+    # Phase 2: Find optimal confidence threshold per class
+    # ══════════════════════════════════════════════
+    print(f"\n{'='*45}")
+    print("  PHASE 2 — Threshold optimisation")
+    print(f"{'='*45}")
+
+    per_class_thresholds = find_optimal_thresholds(
+        raw_preds_by_img, gt_eval, category_id_to_name,
+        iou_threshold=IOU_THRESHOLD
+    )
+
+    print(f"\n{'='*45}")
+    print("  OPTIMAL CONFIDENCE THRESHOLD PER CLASS")
+    print(f"{'='*45}")
+    for cls_id, thresh in sorted(per_class_thresholds.items()):
+        cls_name = category_id_to_name.get(cls_id, str(cls_id))
+        print(f"  {cls_name:<25} {thresh:.2f}")
+    print(f"{'='*45}\n")
+
+    # ══════════════════════════════════════════════
+    # Phase 3: Final evaluation with per-class thresholds
+    # ══════════════════════════════════════════════
+    print(f"{'='*45}")
+    print("  PHASE 3 — Final evaluation")
+    print(f"{'='*45}")
+
+    all_tp = all_fp = all_fn = 0
+    all_preds_for_map = []   # (img_id, box, label, score)
+    gt_for_map = {}          # img_id → [(box, label), …]
 
     for test_img_name in test_img_names:
         test_img_path = test_dir / test_img_name
         img_id = filename_to_id.get(test_img_name)
 
         # ── Ground truth for this image ─────────
-        gts          = gt_by_img.get(img_id, [])
-        gt_boxes_img = [g[0] for g in gts]
-        gt_labels_img= [g[1] for g in gts]
-
+        gts           = gt_by_img.get(img_id, [])
+        gt_boxes_img  = [g[0] for g in gts]
+        gt_labels_img = [g[1] for g in gts]
         gt_for_map[img_id] = [(b, l) for b, l in zip(gt_boxes_img, gt_labels_img)]
 
-        # ── Prediction ──────────────────────────
-        prediction = model.predict(str(test_img_path), threshold=SCORE_THRESHOLD)
+        # ── Apply per-class thresholds ───────────
+        raw_preds = raw_preds_by_img.get(img_id, [])
+        filtered  = [
+            (b, l, s) for b, l, s in raw_preds
+            if s >= per_class_thresholds.get(l, DEFAULT_THRESHOLD)
+        ]
+        pred_boxes_xywh = [p[0] for p in filtered]
+        pred_labels_img = [p[1] for p in filtered]
+        pred_scores_img = [p[2] for p in filtered]
 
-        # rfdetr Detections object → lists
-        # Adjust attribute names if your version differs
-        pred_boxes_img  = [list(b) for b in prediction.xyxy]   # convert to [x,y,w,h]
-        pred_labels_img = list(prediction.class_id)
-        pred_scores_img = list(prediction.confidence)
-
-        # rfdetr returns xyxy; convert to xywh for IoU functions
-        def xyxy_to_xywh(b):
-            return [b[0], b[1], b[2]-b[0], b[3]-b[1]]
- 
-        pred_boxes_xywh = [xyxy_to_xywh(b) for b in pred_boxes_img]
-
-        # Store for mAP computation (keep xyxy internally—IoU works with xywh)
-        for b, l, s in zip(pred_boxes_xywh, pred_labels_img, pred_scores_img):
+        for b, l, s in filtered:
             all_preds_for_map.append((img_id, b, l, s))
 
         # ── Match ───────────────────────────────
@@ -273,9 +391,9 @@ if __name__ == "__main__":
             gt_boxes_img, gt_labels_img, iou_threshold=IOU_THRESHOLD
         )
 
-        n_tp  = len(tp_pred)
-        n_fp  = len(fp_pred) + len(mis_pred)  # geometrically wrong OR class wrong
-        n_fn  = len(fn_gt_set)
+        n_tp = len(tp_pred)
+        n_fp = len(fp_pred) + len(mis_pred)
+        n_fn = len(fn_gt_set)
 
         all_tp += n_tp
         all_fp += n_fp
@@ -290,7 +408,6 @@ if __name__ == "__main__":
         )
 
         # ── Decide output buckets ────────────────
-        # TP bucket: ONLY if every GT matched correctly AND no spurious predictions
         is_perfect = (n_tp == len(gt_boxes_img)) and (n_fp == 0) and (n_fn == 0) and (len(mis_pred) == 0)
         has_fp     = len(fp_pred) > 0
         has_fn     = len(fn_gt_set) > 0
@@ -324,7 +441,7 @@ if __name__ == "__main__":
     ]
     map50_95 = float(np.mean(aps_multi))
 
-    # mAR@50  (max recall across predictions per image, averaged)
+    # mAR@50
     def compute_mar(all_results, gt_by_image, iou_threshold=0.5, max_dets=100):
         recalls_per_img = []
         preds_by_img = defaultdict(list)
@@ -342,8 +459,7 @@ if __name__ == "__main__":
             pred_s = [p[2] for p in preds]
             tp_, _, fn_, mis_ = match_predictions(pred_b, pred_l, pred_s,
                                                    gt_boxes, gt_labels, iou_threshold)
-            n_tp_img = len(tp_)
-            recalls_per_img.append(n_tp_img / (len(gt_boxes) + 1e-9))
+            recalls_per_img.append(len(tp_) / (len(gt_boxes) + 1e-9))
 
         return float(np.mean(recalls_per_img)) if recalls_per_img else 0.0
 
@@ -376,7 +492,12 @@ if __name__ == "__main__":
         print(f"  {k:<18} {v}")
     print("="*45)
 
-    # Save metrics to JSON
+    # Include per-class thresholds in the saved JSON
+    results["per_class_thresholds"] = {
+        category_id_to_name.get(cls_id, str(cls_id)): thresh
+        for cls_id, thresh in sorted(per_class_thresholds.items())
+    }
+
     metrics_path = out_base / "metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(results, f, indent=2)
