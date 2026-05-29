@@ -1,9 +1,11 @@
 import os
+import gc
 import re
 import cv2
 import json
 import random
 import logging
+import threading
 import numpy as np
 import pyvips
 from shapely.geometry import Polygon
@@ -46,6 +48,10 @@ class TileCreator:
                               contains NO annotations. 0 = never save
                               empty tiles; 1 = always save them.
         n_jobs              : Number of parallel worker threads.
+        max_images_in_ram   : Maximum number of source images held in RAM
+                              at the same time across all threads. Tune
+                              this to fit your available memory
+                              (1–2 is safe for images larger than 500 MB).
         resize_factor       : Scale factor applied to width and height
                               (e.g. 0.5 halves each dimension).
                               1.0 means no resize.
@@ -66,6 +72,7 @@ class TileCreator:
         black_threshold: int = 10,
         saving_prob: float = 0.0,
         n_jobs: int = 1,
+        max_images_in_ram: int = 2,
         resize_factor: float = 1.0,
         crop: bool = False,
         roi_threshold: int = 20,
@@ -83,32 +90,34 @@ class TileCreator:
         self.roi_padding = roi_padding
         self.logger = get_logger(__name__, level=logging.DEBUG)
 
+        # ── memory guard ────────────────────────────────────────────────
+        # Limits how many images are decoded into RAM concurrently.
+        # One large TIFF can be 500–800 MB; keep this at 1 or 2 unless
+        # you have >16 GB of free RAM.
+        self._ram_semaphore = threading.Semaphore(max(1, max_images_in_ram))
+
     # ------------------------------------------------------------------ #
     # ROI detection (operates on a small thumbnail – fast for huge TIFFs)
     # ------------------------------------------------------------------ #
 
-    def _detect_roi(self, img_path: str, orig_w: int, orig_h: int):
+    def _detect_roi(self, img_path: str, orig_w: int, orig_h: int) -> "_ROI":
         THUMB_SIZE = 1024
         thumb = pyvips.Image.thumbnail(img_path, THUMB_SIZE)
         scale_x = orig_w / thumb.width
         scale_y = orig_h / thumb.height
 
-        if thumb.bands >= 3:
-            blue = thumb[2]
-        else:
-            blue = thumb  # fallback si ya es monocanal
+        blue = thumb[2] if thumb.bands >= 3 else thumb
 
         arr = np.ndarray(
             buffer=blue.write_to_memory(),
             dtype=np.uint8,
             shape=(blue.height, blue.width),
         )
+        del thumb, blue  # free thumbnail immediately
 
-        # 🔥 Threshold automático (Otsu)
         _, thresh = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         mask = thresh > 0
 
-        # Debug útil
         self.logger.debug(f"{img_path}: porcentaje máscara = {mask.mean():.3f}")
 
         rows_any = mask.any(axis=1)
@@ -141,17 +150,9 @@ class TileCreator:
     def _transform_annotations(
         self,
         img_anns: list[dict],
-        roi: _ROI | None,
+        roi: "_ROI | None",
         f: float,
     ) -> list[dict]:
-        """
-        Return a new list of annotations whose coordinates have been
-        shifted by the ROI offset and scaled by f.
-
-        Annotations that fall completely outside the ROI are discarded.
-        This mirrors exactly what the image pipeline does so that the
-        tiling geometry index always works in post-transform space.
-        """
         off_x = roi.x if roi else 0
         off_y = roi.y if roi else 0
         roi_w  = roi.w if roi else float("inf")
@@ -161,7 +162,6 @@ class TileCreator:
         for ann in img_anns:
             new_ann = dict(ann)
 
-            # ---- bbox ------------------------------------------------
             if "bbox" in ann:
                 x, y, w, h = ann["bbox"]
                 x2, y2 = x + w, y + h
@@ -172,20 +172,19 @@ class TileCreator:
                     x  = max(0.0, x);   x2 = min(float(roi_w), x2)
                     y  = max(0.0, y);   y2 = min(float(roi_h), y2)
                     if x2 <= x or y2 <= y:
-                        continue  # completely outside the crop region
+                        continue
 
                 new_ann["bbox"] = [x * f, y * f, (x2 - x) * f, (y2 - y) * f]
                 new_ann["area"] = new_ann["bbox"][2] * new_ann["bbox"][3]
 
-            # ---- polygon segmentation --------------------------------
             if "segmentation" in ann and isinstance(ann["segmentation"], list):
                 adjusted = []
                 for poly in ann["segmentation"]:
                     new_poly = []
                     for i, coord in enumerate(poly):
-                        if i % 2 == 0:  # x
+                        if i % 2 == 0:
                             new_poly.append(max(0.0, coord - off_x) * f)
-                        else:           # y
+                        else:
                             new_poly.append(max(0.0, coord - off_y) * f)
                     adjusted.append(new_poly)
                 new_ann["segmentation"] = adjusted
@@ -195,7 +194,7 @@ class TileCreator:
         return transformed
 
     # ------------------------------------------------------------------ #
-    # Geometry helpers (unchanged from original TileCreator)
+    # Geometry helpers
     # ------------------------------------------------------------------ #
 
     def _segmentation_to_polygons(self, segmentation: list) -> list[Polygon]:
@@ -242,7 +241,7 @@ class TileCreator:
 
     def _build_geometry_index(
         self, img_anns: list[dict]
-    ) -> tuple[list, list, STRtree | None]:
+    ) -> tuple[list, list, "STRtree | None"]:
         geometries, ann_map = [], []
         for ann in img_anns:
             polys = self._segmentation_to_polygons(ann.get("segmentation"))
@@ -329,97 +328,132 @@ class TileCreator:
             self.logger.warning(f"Imagen no encontrada: {img_path}")
             return [], [], start_img_id, start_ann_id
 
-        # ── 1. Load (random access for efficient regional decoding) ──────
+        # ── Acquire RAM slot before any large allocation ─────────────────
+        # This blocks the thread until a slot is free, preventing multiple
+        # workers from simultaneously holding large decoded images in RAM.
+        with self._ram_semaphore:
+            return self._process_image_inner(
+                img_info, anns, start_img_id, start_ann_id, img_path, img_name
+            )
+
+    def _process_image_inner(
+        self,
+        img_info: dict,
+        anns: dict,
+        start_img_id: int,
+        start_ann_id: int,
+        img_path: str,
+        img_name: str,
+    ) -> tuple[list, list, int, int]:
+        img = None
         try:
-            img = pyvips.Image.new_from_file(img_path, access="random")
-        except Exception as e:
-            self.logger.warning(f"Cannot open {img_path}: {e}")
-            return [], [], start_img_id, start_ann_id
+            # ── 1. Load ──────────────────────────────────────────────────
+            try:
+                img = pyvips.Image.new_from_file(img_path, access="random")
+            except Exception as e:
+                self.logger.warning(f"Cannot open {img_path}: {e}")
+                return [], [], start_img_id, start_ann_id
 
-        orig_w, orig_h = img.width, img.height
-        base_name = os.path.splitext(img_name)[0]
+            orig_w, orig_h = img.width, img.height
+            base_name = os.path.splitext(img_name)[0]
 
-        # ── 2. Optional ROI crop (in memory) ────────────────────────────
-        roi: _ROI | None = None
-        if self.crop:
-            roi = self._detect_roi(img_path, orig_w, orig_h)
-            img = img.crop(roi.x, roi.y, roi.w, roi.h)
+            # ── 2. Optional ROI crop (in memory) ─────────────────────────
+            roi: "_ROI | None" = None
+            if self.crop:
+                roi = self._detect_roi(img_path, orig_w, orig_h)
+                cropped = img.crop(roi.x, roi.y, roi.w, roi.h)
+                del img           # release original before allocating resize
+                img = cropped
 
-        # ── 3. Optional resize (in memory) ──────────────────────────────
-        f = self.resize_factor
-        if f != 1.0:
-            img = img.resize(f)
+            # ── 3. Optional resize (in memory) ───────────────────────────
+            f = self.resize_factor
+            if f != 1.0:
+                resized = img.resize(f)
+                del img           # release pre-resize copy
+                img = resized
 
-        img_w, img_h = img.width, img.height
+            img_w, img_h = img.width, img.height
 
-        # ── 4. Transform annotations into the post-crop/resize space ────
-        img_id = img_info.get("id")
-        raw_anns = [a for a in anns.get("annotations", []) if a.get("image_id") == img_id]
-        transformed_anns = self._transform_annotations(raw_anns, roi, f)
+            # ── 4. Transform annotations ──────────────────────────────────
+            img_id = img_info.get("id")
+            raw_anns = [
+                a for a in anns.get("annotations", []) if a.get("image_id") == img_id
+            ]
+            transformed_anns = self._transform_annotations(raw_anns, roi, f)
 
-        if not transformed_anns:
-            self.logger.info(f"Sin anotaciones para {img_name}, se omite.")
-            return [], [], start_img_id, start_ann_id
+            if not transformed_anns:
+                self.logger.info(f"Sin anotaciones para {img_name}, se omite.")
+                return [], [], start_img_id, start_ann_id
 
-        # ── 5. Build spatial index (once per image) ──────────────────────
-        geometries, ann_map, tree = self._build_geometry_index(transformed_anns)
-        if not tree:
-            return [], [], start_img_id, start_ann_id
+            # ── 5. Build spatial index ────────────────────────────────────
+            geometries, ann_map, tree = self._build_geometry_index(transformed_anns)
+            if not tree:
+                return [], [], start_img_id, start_ann_id
 
-        new_images, new_annotations = [], []
-        curr_img_id = start_img_id
-        curr_ann_id = start_ann_id
+            new_images, new_annotations = [], []
+            curr_img_id = start_img_id
+            curr_ann_id = start_ann_id
 
-        # ── 6. Tile ──────────────────────────────────────────────────────
-        for tile_y in range(0, img_h, self.tile_size):
-            for tile_x in range(0, img_w, self.tile_size):
-                actual_x = min(tile_x, max(0, img_w - self.tile_size))
-                actual_y = min(tile_y, max(0, img_h - self.tile_size))
-                tile_w = min(self.tile_size, img_w)
-                tile_h = min(self.tile_size, img_h)
+            # ── 6. Tile ───────────────────────────────────────────────────
+            for tile_y in range(0, img_h, self.tile_size):
+                for tile_x in range(0, img_w, self.tile_size):
+                    actual_x = min(tile_x, max(0, img_w - self.tile_size))
+                    actual_y = min(tile_y, max(0, img_h - self.tile_size))
+                    tile_w = min(self.tile_size, img_w)
+                    tile_h = min(self.tile_size, img_h)
 
-                # Compute annotations before any I/O
-                tile_anns, next_ann_id = self._calculate_overlap(
-                    actual_x, actual_y, tile_w, tile_h,
-                    curr_img_id, curr_ann_id,
-                    geometries, ann_map, tree,
-                )
+                    tile_anns, next_ann_id = self._calculate_overlap(
+                        actual_x, actual_y, tile_w, tile_h,
+                        curr_img_id, curr_ann_id,
+                        geometries, ann_map, tree,
+                    )
 
-                # Skip empty tiles according to saving_prob
-                if not tile_anns and self.saving_prob < random.random():
-                    continue
-
-                # Extract tile region from the already-transformed in-memory image
-                final_tile_name = f"{base_name}_tile_{actual_x}_{actual_y}.png"
-                final_tile_path = os.path.join(self.out_dir_path, final_tile_name)
-
-                try:
-                    tile_img = img.crop(actual_x, actual_y, tile_w, tile_h)
-
-                    # Discard near-black tiles (border artefacts, etc.)
-                    if tile_img.avg() < self.black_threshold:
+                    if not tile_anns and self.saving_prob < random.random():
                         continue
 
-                    tile_img.write_to_file(final_tile_path)
-                except Exception as e:
-                    self.logger.warning(
-                        f"Error al extraer tile ({tile_x},{tile_y}) de {img_name}: {e}"
+                    final_tile_name = (
+                        f"{base_name}_tile_{actual_x}_{actual_y}.png"
                     )
-                    continue
+                    final_tile_path = os.path.join(
+                        self.out_dir_path, final_tile_name
+                    )
 
-                new_images.append(
-                    {
-                        "id": curr_img_id,
-                        "file_name": final_tile_name,
-                        "width": tile_w,
-                        "height": tile_h,
-                    }
-                )
-                new_annotations.extend(tile_anns)
-                curr_ann_id = next_ann_id
-                curr_img_id += 1
+                    try:
+                        tile_img = img.crop(actual_x, actual_y, tile_w, tile_h)
 
-        return new_images, new_annotations, curr_img_id, curr_ann_id
+                        if tile_img.avg() < self.black_threshold:
+                            del tile_img
+                            continue
+
+                        tile_img.write_to_file(final_tile_path)
+                        del tile_img   # free each tile after writing
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Error al extraer tile ({tile_x},{tile_y}) "
+                            f"de {img_name}: {e}"
+                        )
+                        continue
+
+                    new_images.append(
+                        {
+                            "id": curr_img_id,
+                            "file_name": final_tile_name,
+                            "width": tile_w,
+                            "height": tile_h,
+                        }
+                    )
+                    new_annotations.extend(tile_anns)
+                    curr_ann_id = next_ann_id
+                    curr_img_id += 1
+
+            return new_images, new_annotations, curr_img_id, curr_ann_id
+
+        finally:
+            # Always release the pyvips image and nudge the GC,
+            # even if an exception occurs mid-processing.
+            if img is not None:
+                del img
+            gc.collect()
 
     # ------------------------------------------------------------------ #
     # Orchestration

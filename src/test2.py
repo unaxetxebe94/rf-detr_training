@@ -278,7 +278,7 @@ if __name__ == "__main__":
     DEFAULT_THRESHOLD  = 0.5    # fallback for classes not seen in GT
 
     # ── Model ──────────────────────────────────
-    model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\tr11_mc_nano_13defects_prob50_large_checkpoint_best_total.pth")
+    model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth")
 
     # ── Dataset ────────────────────────────────
     test_dir = Path("data/formatted/test")

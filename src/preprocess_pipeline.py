@@ -67,7 +67,8 @@ if __name__ == "__main__":
             out_dir_path=str(formatted_dataset_dir),
             tile_size=tile_size_mapper[model_type],
             saving_prob=saving_prob,
-            n_jobs=os.cpu_count() // 2,
+            n_jobs=4,
+            max_images_in_ram=4,
             resize_factor=resize,
             crop=apply_roi
         )

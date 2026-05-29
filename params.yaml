@@ -1,14 +1,14 @@
 task-name: prueba_rfdetr
-model-type: large
+model-type: small
 seed: 42
 
 data-src1: E:\Images for labelling\Top  # Dataset local
-data-src2: E:\slave_datasets\formatted\formatted  # Dataset remoto
+data-src2: E:\slave_datasets\formatted # Dataset remoto
 
 preprocess:
   requires-preprocess: true
-  saving-prob: 0.90  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
-  resize: 0.181818
+  saving-prob: 1.0  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
+  resize: 0.33
   apply-roi: true
   train-ratio: 0.7
   test-ratio: 0.15
