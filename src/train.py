@@ -16,13 +16,18 @@ if __name__ == "__main__":
 
     tp = params["train"]  # training parameters
     model_type = params["model-type"]
-    pp = params["preprocess"]  # preprocess parameters
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        pp = params["preprocess"]  # preprocess parameters
+        run_name = f"[{now}]-saving_prob={pp['saving-prob']}-resize={pp['resize']}-apply_roi={pp['apply-roi']}-train_ratio={pp['train-ratio']}-test_ratio={pp['test-ratio']}-val_ratio={pp['val-ratio']}-augmentations_per_image={pp['augmentations-per-image']}-max_transformations_per_sample={pp['max-transforms-per-sample']}"
+    except KeyError as ke:
+        print(f"Error al leer el preprocesado: {ke}")
+        print("Se asume que se está entrenando desde Collab")
+        run_name = f"[{now}]-CollabTraining"
 
     # Accedemos a las rutas desde 'tp'
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     dataset_dir = Path(params["final-data"], "formatted")
     output_dir = Path("trainings", "training")
-    run_name = f"[{now}]-saving_prob={pp['saving-prob']}-resize={pp['resize']}-apply_roi={pp['apply-roi']}-train_ratio={pp['train-ratio']}-test_ratio={pp['test-ratio']}-val_ratio={pp['val-ratio']}-augmentations_per_image={pp['augmentations-per-image']}-max_transformations_per_sample={pp['max-transforms-per-sample']}"
     # SelecciÃ³n de modelo
     models = {
         "nano": RFDETRNano,
