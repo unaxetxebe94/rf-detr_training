@@ -1,5 +1,6 @@
 import os
 import json
+import yaml
 import shutil
 import numpy as np
 from pathlib import Path
@@ -277,11 +278,14 @@ if __name__ == "__main__":
     IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
     DEFAULT_THRESHOLD  = 0.5    # fallback for classes not seen in GT
 
+    with open("params.yaml", mode="r") as f:
+        params = yaml.safe_load(f)
+
     # ── Model ──────────────────────────────────
     model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth")
 
     # ── Dataset ────────────────────────────────
-    test_dir = Path("data/formatted/test")
+    test_dir = Path(params["final-data"], r"formatted\test")
     with open(test_dir / "_annotations.coco.json", mode="r") as f:
         anns = json.load(f)
 

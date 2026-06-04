@@ -16,8 +16,8 @@ import cv2
 import numpy as np
 
 # Configuración del usuario -----------------
-ANNOTATIONS_PATH = r"C:\_PROJECTS\B1375\training_code\rf-detr_training\data\prueba_formatted\train\_annotations.coco.json"
-IMAGES_DIR = r"C:\_PROJECTS\B1375\training_code\rf-detr_training\data\prueba_formatted\train"
+ANNOTATIONS_PATH = r"D:\training_data\formatted\test\_annotations.coco.json"
+IMAGES_DIR = r"D:\training_data\formatted\test"
 SHOW_MASKS = True
 RESIZE = 1.0
 OUT_DIR = "label_validaton"  # directorio donde se guardan las imágenes anotadas

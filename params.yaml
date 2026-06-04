@@ -4,6 +4,7 @@ seed: 42
 
 data-src1: E:\Images for labelling\Top  # Dataset local
 data-src2: E:\slave_datasets\formatted # Dataset remoto
+final-data: D:\training_data
 
 preprocess:
   requires-preprocess: true
@@ -24,7 +25,7 @@ train:
   epochs: 15
   weight_decay: 1e-4
   tensorboard: true
-  wandb: true
+  wandb: false
   project: top
   mlflow: false
   clearml: false

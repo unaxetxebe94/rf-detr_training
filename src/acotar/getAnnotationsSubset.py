@@ -1,8 +1,13 @@
 import json
 import argparse
+from pathlib import Path
 from collections import defaultdict
 
-def filter_coco_by_classes(input_path, output_path, class_names):
+def filter_coco_by_classes(root_dir: Path, class_names: list):
+
+    input_path = root_dir / "_annotations.coco.json"
+    cp = root_dir / "_annotations_allclasses.coco.json"
+
     with open(input_path, 'r', encoding='utf-8') as f:
         coco = json.load(f)
 
@@ -20,7 +25,7 @@ def filter_coco_by_classes(input_path, output_path, class_names):
     new_categories = [cat for cat in coco["categories"] if cat["id"] in selected_ids]
 
     # Reindexar categorías (opcional pero limpio)
-    old_to_new_id = {cat["id"]: i + 1 for i, cat in enumerate(new_categories)}
+    old_to_new_id = {cat["id"]: i for i, cat in enumerate(new_categories)}
     for cat in new_categories:
         cat["id"] = old_to_new_id[cat["id"]]
 
@@ -36,11 +41,11 @@ def filter_coco_by_classes(input_path, output_path, class_names):
             used_image_ids.add(ann["image_id"])
 
     # Filtrar imágenes (solo las que tienen anotaciones)
-    new_images = [img for img in coco["images"] if img["id"] in used_image_ids]
+    # new_images = [img for img in coco["images"] if img["id"] in used_image_ids]
 
     # Construir nuevo COCO
     new_coco = {
-        "images": new_images,
+        "images": coco["images"],  # Mantener todas las imágenes, incluso las sin anotaciones
         "annotations": new_annotations,
         "categories": new_categories
     }
@@ -50,27 +55,23 @@ def filter_coco_by_classes(input_path, output_path, class_names):
         if key not in new_coco:
             new_coco[key] = coco[key]
 
-    # Guardar
-    with open(output_path, 'w', encoding='utf-8') as f:
+    # Guardar dataset viejo
+    with open(cp, 'w', encoding='utf-8') as f:
+        json.dump(coco, f, indent=4, ensure_ascii=False)
+
+    # Guardar dataset filtrado
+    with open(input_path, 'w', encoding='utf-8') as f:
         json.dump(new_coco, f, indent=4, ensure_ascii=False)
 
-    print(f"Nuevo dataset guardado en: {output_path}")
-    print(f"Imágenes: {len(new_images)}")
+    print(f"Nuevo dataset guardado en: {cp}")
+    print(f"Imágenes: {len(coco["images"])}")
     print(f"Anotaciones: {len(new_annotations)}")
     print(f"Clases: {[c['name'] for c in new_categories]}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Filtrar COCO por subconjunto de clases")
-    parser.add_argument("--input", required=True, help="Ruta al JSON COCO original")
-    parser.add_argument("--output", required=True, help="Ruta de salida")
-    parser.add_argument(
-        "--classes",
-        nargs="+",
-        required=True,
-        help="Lista de nombres de clases a mantener (ej: persona coche perro)"
-    )
+    root_dir = Path(r"E:\rf-detr_training\data\formatted")
+    classes = ["Damaged face", "Broken lipping", "Foil Tear", "Short lipping"]
 
-    args = parser.parse_args()
-
-    filter_coco_by_classes(args.input, args.output, args.classes)
+    for split in ["train", "valid", "test"]:
+        filter_coco_by_classes(root_dir / split, classes)

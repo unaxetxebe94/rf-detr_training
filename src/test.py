@@ -61,7 +61,7 @@ with open(category_map_path, mode="r") as f:
 category_map = {int(id): cat for id, cat in category_map_.items()}
 
 # Obtenemos las imÃ¡genes del test para ver las predicciones
-test_dir = Path("data", 'formatted', "test")
+test_dir = Path(params["final-data"], 'formatted', "test")
 os.makedirs(test_dir, exist_ok=True)
 files_in_test_dir = os.listdir(test_dir)
 images_to_test = []
