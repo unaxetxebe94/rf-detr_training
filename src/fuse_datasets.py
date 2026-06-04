@@ -217,7 +217,7 @@ if __name__ == "__main__":
     save_mapping()
 
     # ── Guardar info de preprocesado para W&B ────────────────────────────────
-    stats_dir = Path("data", "formatted")
+    stats_dir = Path(params["final-data"])
     save_preprocess_info(params, stats_dir, output_dir)
 
     logger.debug("Se ha terminado la fusión de datasets")

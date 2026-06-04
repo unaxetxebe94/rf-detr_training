@@ -13,24 +13,26 @@ import yaml
 with open("$CONFIG_FILE") as f:
     cfg = yaml.safe_load(f)
 
-print(cfg["conda_env"])
 print(cfg["git"]["commit"])
 print(cfg["git"]["push"])
 print(cfg["git"]["message"])
 print(cfg["data"]["prepared"])
-print(cfg["data"]["use_slave"])
+print(cfg["data"]["data-src1"])
+print(cfg["data"]["data-src2"])
+print(cfg["data"]["final-dir"])
 EOF
 }
 
 # Cargar variables
 readarray -t cfg < <(read_yaml)
 
-CONDA_ENV=${cfg[0]}
-COMMIT=${cfg[1]}
-PUSH=${cfg[2]}
-COMMIT_MESSAGE=${cfg[3]}
-PREPARED=${cfg[4]}
-USE_SLAVE=${cfg[5]}
+COMMIT=${cfg[0]}
+PUSH=${cfg[1]}
+COMMIT_MESSAGE=${cfg[2]}
+PREPARED=${cfg[3]}
+DATA_SRC1=${cfg[4]}
+DATA_SRC2=${cfg[5]}
+FINAL_DIR=${cfg[6]}
 
 START_TIME=$(date +%s)
 
@@ -50,7 +52,7 @@ invoke_stage () {
   local script=$2
 
   write_step "$name"
-  conda run -n "$CONDA_ENV" python "$script"
+  python "$script"
 
   if [ $? -ne 0 ]; then
     echo "ERROR en $name"
@@ -66,13 +68,11 @@ write_step "Pipeline iniciado"
 
 if [ "$PREPARED" != "True" ] && [ "$PREPARED" != "true" ]; then
 
-  invoke_stage "Preprocesado" "src/preprocess_pipeline.py"
-
   if [ "$USE_SLAVE" == "True" ] || [ "$USE_SLAVE" == "true" ]; then
     invoke_stage "Fusión datasets" "src/fuse_datasets.py"
   else
-    rm -rf data/formatted 2>/dev/null || true
-    mv data/preprocessed_src1 data/formatted
+    rm -r $FINAL_DIR || True
+    mv $DATA_SRC1 $FINAL_DIR
   fi
 fi
 
