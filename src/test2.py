@@ -283,7 +283,7 @@ def find_optimal_thresholds(raw_preds_by_img, gt_by_img, category_id_to_name,
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    out_base = OUTPUT_DIR
+    out_base = Path(OUTPUT_DIR)
     with open("params.yaml", mode="r") as f:
         params = yaml.safe_load(f)
 
