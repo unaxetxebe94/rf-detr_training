@@ -95,9 +95,9 @@ if [ "$COMMIT" == "True" ] || [ "$COMMIT" == "true" ]; then
 
   mkdir -p annotations
 
-  cp data/formatted/train/_annotations.coco.json annotations/train_annotations.json
-  cp data/formatted/test/_annotations.coco.json annotations/test_annotations.json
-  cp data/formatted/valid/_annotations.coco.json annotations/valid_annotations.json
+  cp $FINAL_DIR/train/_annotations.coco.json annotations/train_annotations.json
+  cp $FINAL_DIR/test/_annotations.coco.json annotations/test_annotations.json
+  cp $FINAL_DIR/valid/_annotations.coco.json annotations/valid_annotations.json
 
   git add .
 
