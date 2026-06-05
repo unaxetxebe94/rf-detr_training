@@ -50,7 +50,8 @@ def read_params() -> dict:
 
 
 def save_mapping():
-        dataset_train_path = Path("data", "formatted", "train")
+        params = read_params()
+        dataset_train_path = Path(params["final-data"], "train")
         
         annotations_path = dataset_train_path / "_annotations.coco.json"
         with open(annotations_path, mode="r") as f:
