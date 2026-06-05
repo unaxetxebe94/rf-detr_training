@@ -16,6 +16,7 @@ with open("test2_params.yaml", mode="r") as f:
 IOU_THRESHOLD = params["iou-threshold"]
 RAW_THRESHOLD = params["raw-threshold"]
 DEFAULT_THRESHOLD = params["default-threshold"]
+PRETRAIN_WEIGHTS = params["pretrain-weights"]
 
 
 
@@ -287,10 +288,10 @@ if __name__ == "__main__":
         params = yaml.safe_load(f)
 
     # ── Model ──────────────────────────────────
-    model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth")
+    model = RFDETRLarge(pretrain_weights=PRETRAIN_WEIGHTS)
 
     # ── Dataset ────────────────────────────────
-    test_dir = Path(params["final-data"], r"formatted\test")
+    test_dir = Path(params["final-data"], r"test")
     with open(test_dir / "_annotations.coco.json", mode="r") as f:
         anns = json.load(f)
 
