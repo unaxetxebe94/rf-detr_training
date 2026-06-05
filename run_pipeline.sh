@@ -17,6 +17,7 @@ print(cfg["git"]["commit"])
 print(cfg["git"]["push"])
 print(cfg["git"]["message"])
 print(cfg["data"]["prepared"])
+print(cfg["data"]["use-slave"])
 print(cfg["data"]["data-src1"])
 print(cfg["data"]["data-src2"])
 print(cfg["data"]["final-dir"])
@@ -30,9 +31,10 @@ COMMIT=${cfg[0]}
 PUSH=${cfg[1]}
 COMMIT_MESSAGE=${cfg[2]}
 PREPARED=${cfg[3]}
-DATA_SRC1=${cfg[4]}
-DATA_SRC2=${cfg[5]}
-FINAL_DIR=${cfg[6]}
+USE_SLAVE=${cfg[4]}
+DATA_SRC1=${cfg[5]}
+DATA_SRC2=${cfg[6]}
+FINAL_DIR=${cfg[7]}
 
 START_TIME=$(date +%s)
 
