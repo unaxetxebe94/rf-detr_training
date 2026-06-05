@@ -49,7 +49,7 @@ if __name__ == "__main__":
     seed = params["seed"]
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
-    formatted_dataset_dir = params["final-data"]
+    formatted_dataset_dir = Path(params["final-data"])
 
 
     # Inicializamos los pasos del pipeline si se requiere
