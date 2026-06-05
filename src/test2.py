@@ -158,9 +158,9 @@ def compute_map(all_results, gt_by_image, iou_threshold=0.5):
 COLORS = {
     "gt":           (0, 188, 0),    
     "tp":           (0, 255, 0),  
-    "fp":           (255, 137, 0),
-    "fn":           (255, 0, 0),
-    "mis":          (255, 255, 0),
+    "fp":           (0, 137, 255),
+    "fn":           (0, 0, 255),
+    "mis":          (0, 255, 255),
 }
 
 
