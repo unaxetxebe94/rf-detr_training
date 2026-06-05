@@ -73,7 +73,7 @@ if [ "$PREPARED" != "True" ] && [ "$PREPARED" != "true" ]; then
   if [ "$USE_SLAVE" == "True" ] || [ "$USE_SLAVE" == "true" ]; then
     invoke_stage "Fusión datasets" "src/fuse_datasets.py"
   else
-    rm -r $FINAL_DIR || True
+    # rm -r $FINAL_DIR || True
     mv $DATA_SRC1 $FINAL_DIR
   fi
 fi
