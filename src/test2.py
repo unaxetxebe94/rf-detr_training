@@ -155,11 +155,11 @@ def compute_map(all_results, gt_by_image, iou_threshold=0.5):
 # ──────────────────────────────────────────────
 
 COLORS = {
-    "gt":           (0, 255, 0),    # green  – ground-truth
-    "tp":           (0, 200, 255),  # cyan   – correct prediction
-    "fp":           (0, 0, 255),    # red    – false positive
-    "fn":           (255, 165, 0),  # orange – missed (only on gt side)
-    "mis":          (255, 0, 255),  # magenta – misclassified
+    "gt":           (0, 188, 0),    
+    "tp":           (0, 255, 0),  
+    "fp":           (255, 137, 0),
+    "fn":           (255, 0, 0),
+    "mis":          (255, 255, 0),
 }
 
 
