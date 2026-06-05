@@ -213,7 +213,7 @@ if __name__ == "__main__":
     DatasetFuser.fuse_splitted_datasets(
         dataset1_path=d1_path,
         dataset2_path=params["data-src2"],
-        output_path=r"data\formatted"
+        output_path=params["final-data"]
     )
 
     # Guardamos un mapping de cat_id --> cat_name para el test
