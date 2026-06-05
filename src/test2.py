@@ -305,7 +305,6 @@ if __name__ == "__main__":
         gt_by_img[ann["image_id"]].append((ann["bbox"], ann["category_id"]))
 
     # ── Output folders ─────────────────────────
-    out_base = Path("test_results")
     for folder in ("TP", "FP", "FN", "misclassified"):
         (out_base / folder).mkdir(parents=True, exist_ok=True)
 
