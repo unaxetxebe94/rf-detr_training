@@ -5,6 +5,7 @@ os.environ["PATH"] = r"C:\Program Files\vips-dev-8.17\bin;" + os.environ["PATH"]
 import yaml
 import json
 import shutil
+import argparse
 import logging
 from pathlib import Path
 
@@ -29,12 +30,18 @@ def is_dataset_formatted(dataset_dir: Path) -> bool:
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--is-master", action="store_true")
+    args = parser.parse_args()
+
+    is_master = args.is_master
+
     logger.info("\n\n\n====================== INICIANDO PIPELINE ======================")
 
     params = read_params()
 
     # Obtenemos los parámetros de preprocesamiento de params.yaml
-    input_folder = params["data-src1"]
+    input_folder = params["data-src1"] if is_master else params["data-src1"]
     requires_preprocess = params["preprocess"]["requires-preprocess"]
     resize = params["preprocess"]["resize"]
     saving_prob = params["preprocess"]["saving-prob"]
@@ -49,7 +56,7 @@ if __name__ == "__main__":
     seed = params["seed"]
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
-    formatted_dataset_dir = Path(params["final-data"])
+    formatted_dataset_dir = Path(params["final-data"]) / "master" if is_master else Path(params["final-data"]) / "slave"
 
 
     # Inicializamos los pasos del pipeline si se requiere

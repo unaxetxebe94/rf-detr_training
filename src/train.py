@@ -26,7 +26,7 @@ if __name__ == "__main__":
         run_name = f"[{now}]-CollabTraining"
 
     # Accedemos a las rutas desde 'tp'
-    dataset_dir = Path(params["final-data"], "formatted")
+    dataset_dir = Path(params["final-data"])
     output_dir = Path("trainings", "training")
     # SelecciÃ³n de modelo
     models = {

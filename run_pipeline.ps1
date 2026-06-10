@@ -14,6 +14,10 @@ param(
     [string]$CondaEnv = "rf-detr"
 )
 
+Import-Module powershell-yaml
+$config = Get-Content params.yaml -Raw | ConvertFrom-Yaml
+$finalData = $config["final-data"]
+
 $ErrorActionPreference = "Stop"
 $StartTime = Get-Date
 
@@ -36,14 +40,84 @@ function Write-Warn { param([string]$M); Write-Host "  WARNING  $M" -ForegroundC
 function Write-Err  { param([string]$M); Write-Host "  ERROR  $M" -ForegroundColor Red    }
 
 function Invoke-Stage {
-    param([string]$StageName, [string]$Script)
+    param(
+        [string]$StageName,
+        [string]$Script,
+        [string[]]$Arguments = @()
+    )
+
     Write-Step "Etapa: $StageName"
-    conda run -n $CondaEnv python $Script
+
+    $cmdArgs = @(
+        "run",
+        "--no-capture-output",
+        "-n",
+        $CondaEnv,
+        "python",
+        "-u",
+        $Script
+    ) + $Arguments
+
+    conda @cmdArgs
+
     if ($LASTEXITCODE -ne 0) {
         Write-Err "La etapa '$StageName' ha fallado (exit code $LASTEXITCODE)."
         exit $LASTEXITCODE
     }
+
     Write-Ok "$StageName completado."
+}
+
+function Invoke-ParallelPreprocess {
+    Write-Step "Preprocesado (paralelo)"
+
+    # Preprocesado en el master
+    $p1 = Start-Process `
+        -FilePath "conda" `
+        -ArgumentList @(
+            "run",
+            "--no-capture-output",
+            "-n",
+            $CondaEnv,
+            "python",
+            "-u",
+            "src/preprocess_pipeline.py",
+            "--is-master"
+        ) `
+        -PassThru `
+        -NoNewWindow
+
+    # Preprocesado en el esclavo
+    $p2 = Start-Process `
+        -FilePath "conda" `
+        -ArgumentList @(
+            "run",
+            "--no-capture-output",
+            "-n",
+            $CondaEnv,
+            "python",
+            "-u",
+            "src/preprocess_pipeline.py"
+        ) `
+        -PassThru `
+        -NoNewWindow
+
+    Wait-Process -Id $p1.Id, $p2.Id
+
+    $p1.Refresh()
+    $p2.Refresh()
+
+    if ($p1.ExitCode -ne 0) {
+        Write-Err "Preprocesado de data-src1 falló (exit code $($p1.ExitCode))."
+        exit $p1.ExitCode
+    }
+
+    if ($p2.ExitCode -ne 0) {
+        Write-Err "Preprocesado data-src2 falló (exit code $($p2.ExitCode))."
+        exit $p2.ExitCode
+    }
+
+    Write-Ok "Preprocesados completados."
 }
 
 
@@ -78,13 +152,13 @@ else {
 
 Write-Step "Preparación de datos"
 
-$response = Read-Host "¿Los datos ya están preparados? ([y]/n)"
+$response = Read-Host "¿Los datos ya están preparados? (y/[n])"
 $useSlave = "n"
-if ($response -eq "y" -or $response -eq "") {
+if ($response -eq "y") {
     $isDataPrepared = $true
     Write-Host "No se ejecutará ni el preprocesado ni la fusión" -ForegroundColor Yellow
 }
-elseif ($response -eq "n") {
+elseif ($response -eq "n" -or $response -eq "") {
     Write-Warn "Se ejecutará el preprocesado"
     $isDataPrepared = $false
 
@@ -107,24 +181,24 @@ else {
 # ─────────────────────────────────────────────────────────────────────────────
 
 if (-not $isDataPrepared) {
-    # 0. Preprocesado
-    Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py"
 
     if ($useSlave -eq "y") {
+        # 0. Preprocesado en paralelo 
+        Invoke-ParallelPreprocess
         # 1. Fusionar los datasets del master y slave
         Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
     } else {
-        $basePath = "E:\rf-detr_training\data"
-        $formattedPath = Join-Path $basePath "formatted"
-        $sourcePath = Join-Path $basePath "preprocessed_src1"
+        Invoke-Stage "Fusión de datasets" "src/preprocess_pipeline.py" @("--is-master")
 
-        # Si existe 'formatted', eliminarlo primero
-        if (Test-Path $formattedPath) {
-            Remove-Item $formattedPath -Recurse -Force
+        $masterPath = Join-Path $finalData "master"
+
+        # Mover todo el contenido de master a final-data
+        Get-ChildItem -Path $masterPath -Force | ForEach-Object {
+            Move-Item -Path $_.FullName -Destination $finalData -Force
         }
 
-        # Renombrar carpeta
-        Rename-Item $sourcePath "formatted"
+        # Eliminar la carpeta master vacía
+        Remove-Item -Path $masterPath -Recurse -Force
     }
 }
 
