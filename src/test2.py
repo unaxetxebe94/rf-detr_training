@@ -9,6 +9,16 @@ from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRSmall, RFDETRNano
 from utils import read_params
 import cv2
 
+IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
+
+with open("test2_params.yaml", mode="r") as f:
+    params = yaml.safe_load(f)
+IOU_THRESHOLD = params["iou-threshold"]
+RAW_THRESHOLD = params["raw-threshold"]
+DEFAULT_THRESHOLD = params["default-threshold"]
+PRETRAIN_WEIGHTS = params["pretrain-weights"]
+OUTPUT_DIR = params["output-dir"]
+
 
 # ──────────────────────────────────────────────
 # IoU helpers
@@ -146,11 +156,11 @@ def compute_map(all_results, gt_by_image, iou_threshold=0.5):
 # ──────────────────────────────────────────────
 
 COLORS = {
-    "gt":           (0, 255, 0),    # green  – ground-truth
-    "tp":           (0, 200, 255),  # cyan   – correct prediction
-    "fp":           (0, 0, 255),    # red    – false positive
-    "fn":           (255, 165, 0),  # orange – missed (only on gt side)
-    "mis":          (255, 0, 255),  # magenta – misclassified
+    "gt":           (0, 188, 0),    
+    "tp":           (0, 255, 0),  
+    "fp":           (0, 137, 255),
+    "fn":           (0, 0, 255),
+    "mis":          (0, 255, 255),
 }
 
 
@@ -273,19 +283,15 @@ def find_optimal_thresholds(raw_preds_by_img, gt_by_img, category_id_to_name,
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    IOU_THRESHOLD      = 0.3
-    RAW_THRESHOLD      = 0.05   # collect all candidates; per-class thresholds applied later
-    IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
-    DEFAULT_THRESHOLD  = 0.5    # fallback for classes not seen in GT
-
+    out_base = Path(OUTPUT_DIR)
     with open("params.yaml", mode="r") as f:
         params = yaml.safe_load(f)
 
     # ── Model ──────────────────────────────────
-    model = RFDETRLarge(pretrain_weights=r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth")
+    model = RFDETRLarge(pretrain_weights=PRETRAIN_WEIGHTS)
 
     # ── Dataset ────────────────────────────────
-    test_dir = Path(params["final-data"], r"formatted\test")
+    test_dir = Path(params["final-data"], r"test")
     with open(test_dir / "_annotations.coco.json", mode="r") as f:
         anns = json.load(f)
 
@@ -299,7 +305,6 @@ if __name__ == "__main__":
         gt_by_img[ann["image_id"]].append((ann["bbox"], ann["category_id"]))
 
     # ── Output folders ─────────────────────────
-    out_base = Path("test_results")
     for folder in ("TP", "FP", "FN", "misclassified"):
         (out_base / folder).mkdir(parents=True, exist_ok=True)
 
