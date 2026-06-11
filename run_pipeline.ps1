@@ -16,6 +16,7 @@ param(
 
 Import-Module powershell-yaml
 $config = Get-Content params.yaml -Raw | ConvertFrom-Yaml
+$dataSrc2 = $config["data-src2"]
 $finalData = $config["final-data"]
 
 $ErrorActionPreference = "Stop"
@@ -184,8 +185,12 @@ if (-not $isDataPrepared) {
 
     if ($useSlave -eq "y") {
         # 0. Preprocesado en paralelo 
-        Invoke-ParallelPreprocess
-        # 1. Fusionar los datasets del master y slave
+        Invoke-Stage "Fusión de datasets" "src/preprocess_pipeline.py" @("--is-master")
+        # 1. Mover los archivos de src2 a dst2
+        $slavePath = Join-Path $finalData "slave"
+        New-Item -ItemType Directory -Force -Path $slavePath | Out-Null
+        Move-Item -Path $dataSrc2\* -Destination $slavePath -Force
+        # 2. Fusionar los datasets del master y slave
         Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
     } else {
         Invoke-Stage "Fusión de datasets" "src/preprocess_pipeline.py" @("--is-master")
