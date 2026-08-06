@@ -90,23 +90,31 @@ function Invoke-ParallelPreprocess {
 
     # Preprocesado en el esclavo
     $p2 = Start-Process `
-        -FilePath "conda" `
+        -FilePath "python" `
         -ArgumentList @(
-            "run",
-            "--no-capture-output",
-            "-n",
-            $CondaEnv,
-            "python",
             "-u",
             "src/preprocess_pipeline.py"
         ) `
         -PassThru `
         -NoNewWindow
 
-    Wait-Process -Id $p1.Id, $p2.Id
+	Write-Host "=== P1 ==="
+	$p1 | Format-List *
 
-    $p1.Refresh()
-    $p2.Refresh()
+	Write-Host "=== P2 ==="
+	$p2 | Format-List *
+
+    	$p1.WaitForExit()
+	$p2.WaitForExit()
+
+	$p1.Refresh()
+	$p2.Refresh()
+
+	Write-Host "Master HasExited = $($p1.HasExited)"
+	Write-Host "Slave HasExited = $($p2.HasExited)"
+
+	Write-Host "Master ExitCode = '$($p1.ExitCode)'"
+	Write-Host "Slave ExitCode = '$($p2.ExitCode)'"
 
     if ($p1.ExitCode -ne 0) {
         Write-Err "Preprocesado de data-src1 falló (exit code $($p1.ExitCode))."
@@ -185,11 +193,12 @@ if (-not $isDataPrepared) {
 
     if ($useSlave -eq "y") {
         # 0. Preprocesado en paralelo 
-        Invoke-Stage "Fusión de datasets" "src/preprocess_pipeline.py" @("--is-master")
+        # Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py" @("--is-master")
+        Invoke-ParallelPreprocess
         # 1. Mover los archivos de src2 a dst2
         $slavePath = Join-Path $finalData "slave"
         New-Item -ItemType Directory -Force -Path $slavePath | Out-Null
-        Move-Item -Path $dataSrc2\* -Destination $slavePath -Force
+        Move-Item -Path $dataSrc2\formatted -Destination $slavePath -Force
         # 2. Fusionar los datasets del master y slave
         Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
     } else {

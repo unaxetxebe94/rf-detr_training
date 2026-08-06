@@ -41,7 +41,7 @@ if __name__ == "__main__":
     params = read_params()
 
     # Obtenemos los parámetros de preprocesamiento de params.yaml
-    input_folder = params["data-src1"] if is_master else params["data-src1"]
+    input_folder = params["data-src1"] if is_master else params["data-src2"]
     requires_preprocess = params["preprocess"]["requires-preprocess"]
     resize = params["preprocess"]["resize"]
     saving_prob = params["preprocess"]["saving-prob"]
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     seed = params["seed"]
     model_type = params["model-type"].lower()
     set_seed(seed=seed)
-    formatted_dataset_dir = Path(params["final-data"]) / "master" if is_master else Path(params["final-data"]) / "slave"
+    formatted_dataset_dir = Path(params["final-data"]) / "master" if is_master else Path(params["data-src2"]) / "formatted"
 
 
     # Inicializamos los pasos del pipeline si se requiere

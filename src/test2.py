@@ -11,13 +11,13 @@ import cv2
 
 IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
 
-with open("test2_params.yaml", mode="r") as f:
-    params = yaml.safe_load(f)
-IOU_THRESHOLD = params["iou-threshold"]
-RAW_THRESHOLD = params["raw-threshold"]
-DEFAULT_THRESHOLD = params["default-threshold"]
-PRETRAIN_WEIGHTS = params["pretrain-weights"]
-OUTPUT_DIR = params["output-dir"]
+# with open("test2_params.yaml", mode="r") as f:
+#     params = yaml.safe_load(f)
+IOU_THRESHOLD = 0.3
+RAW_THRESHOLD = 0.05
+DEFAULT_THRESHOLD = 0.5
+PRETRAIN_WEIGHTS = r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth"
+OUTPUT_DIR = "test_lateral"
 
 
 # ──────────────────────────────────────────────
@@ -287,8 +287,8 @@ if __name__ == "__main__":
     RAW_THRESHOLD      = 0.05   # collect all candidates; per-class thresholds applied later
     IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
     DEFAULT_THRESHOLD  = 0.5    # fallback for classes not seen in GT
-    OUTPUT_DIR = ""
-    PRETRAIN_WEIGHTS = ""
+    PRETRAIN_WEIGHTS = r"E:\rf-detr_training\prueba\checkpoint_best_total.pth"
+    OUTPUT_DIR = "test_prueba"
 
     out_base = Path(OUTPUT_DIR)
     with open("params.yaml", mode="r") as f:

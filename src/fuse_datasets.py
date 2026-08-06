@@ -208,11 +208,11 @@ if __name__ == "__main__":
     if os.path.exists(Path("data", "preprocessed_src1")):
         d1_path = Path("data", "preprocessed_src1")
     else:
-        d1_path =Path(params["data-src1"]) / "master"
+        d1_path =Path(params["final-data"]) / "master"
 
     DatasetFuser.fuse_splitted_datasets(
         dataset1_path=d1_path,
-        dataset2_path=Path(params["data-src2"]) / "slave",
+        dataset2_path=Path(params["final-data"]) / "slave",
         output_path=params["final-data"]
     )
 

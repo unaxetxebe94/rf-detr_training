@@ -64,14 +64,14 @@ def filter_coco_by_classes(root_dir: Path, class_names: list):
         json.dump(new_coco, f, indent=4, ensure_ascii=False)
 
     print(f"Nuevo dataset guardado en: {cp}")
-    print(f"Imágenes: {len(coco["images"])}")
+    print(f"Imágenes: {len(coco['images'])}")
     print(f"Anotaciones: {len(new_annotations)}")
     print(f"Clases: {[c['name'] for c in new_categories]}")
 
 
 if __name__ == "__main__":
-    root_dir = Path(r"E:\rf-detr_training\data\formatted")
-    classes = ["Damaged face", "Broken lipping", "Foil Tear", "Short lipping"]
+    root_dir = Path(r"C:\training_dataset")
+    classes = ["Damaged face", "Broken lipping", "Foil Tear"]
 
     for split in ["train", "valid", "test"]:
         filter_coco_by_classes(root_dir / split, classes)
