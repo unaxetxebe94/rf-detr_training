@@ -9,15 +9,6 @@ from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRSmall, RFDETRNano
 from utils import read_params
 import cv2
 
-IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
-
-# with open("test2_params.yaml", mode="r") as f:
-#     params = yaml.safe_load(f)
-IOU_THRESHOLD = 0.3
-RAW_THRESHOLD = 0.05
-DEFAULT_THRESHOLD = 0.5
-PRETRAIN_WEIGHTS = r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth"
-OUTPUT_DIR = "test_lateral"
 
 
 # ──────────────────────────────────────────────
@@ -287,12 +278,13 @@ if __name__ == "__main__":
     RAW_THRESHOLD      = 0.05   # collect all candidates; per-class thresholds applied later
     IOU_THRESHOLDS_MAP = np.arange(0.5, 1.0, 0.05)   # for mAP@50:95
     DEFAULT_THRESHOLD  = 0.5    # fallback for classes not seen in GT
-    PRETRAIN_WEIGHTS = r"E:\rf-detr_training\prueba\checkpoint_best_total.pth"
-    OUTPUT_DIR = "test_prueba"
+    PRETRAIN_WEIGHTS = r"E:\rf-detr_training\trainings\training\checkpoint_best_total.pth"
 
-    out_base = Path(OUTPUT_DIR)
     with open("params.yaml", mode="r") as f:
         params = yaml.safe_load(f)
+
+    OUTPUT_DIR = params.get("task-name", "test_output")
+    out_base = Path(OUTPUT_DIR)
 
     # ── Model ──────────────────────────────────
     model = RFDETRLarge(pretrain_weights=PRETRAIN_WEIGHTS)

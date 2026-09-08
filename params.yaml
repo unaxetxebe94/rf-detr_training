@@ -1,9 +1,9 @@
-task-name: prueba_rfdetr
+task-name: test_top_bottom
 model-type: large
 seed: 42
 
-data-src1: E:\Images for labelling\Left  # Dataset local
-data-src2: \\10.139.140.20\Right # Dataset remoto
+data-src1: E:\Images for labelling\Top  # Dataset local
+data-src2: \\10.139.140.20\Bottom # Dataset remoto
 final-data: C:\training_dataset
 
 preprocess:
@@ -25,8 +25,8 @@ train:
   epochs: 15
   weight_decay: 1e-4
   tensorboard: true
-  wandb: true
-  project: lateral
+  wandb: false
+  project: frontalfa
   mlflow: false
   clearml: false
   run_test: true

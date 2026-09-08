@@ -192,13 +192,18 @@ else {
 if (-not $isDataPrepared) {
 
     if ($useSlave -eq "y") {
+        if (Test-Path $finalData) {
+            Remove-Item $finalData -Recurse
+        }
         # 0. Preprocesado en paralelo 
         # Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py" @("--is-master")
         Invoke-ParallelPreprocess
         # 1. Mover los archivos de src2 a dst2
         $slavePath = Join-Path $finalData "slave"
         New-Item -ItemType Directory -Force -Path $slavePath | Out-Null
-        Move-Item -Path $dataSrc2\formatted -Destination $slavePath -Force
+        Get-ChildItem "$dataSrc2\formatted" | ForEach-Object {
+            Move-Item $_.FullName $slavePath -Force
+        }
         # 2. Fusionar los datasets del master y slave
         Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
     } else {
@@ -223,7 +228,7 @@ Invoke-Stage "Entrenamiento" "src/train.py"
 Invoke-Stage "Procesado de resultados" "src/process_results.py"
 
 # 4. Test
-Invoke-Stage "Test" "src/test.py"
+Invoke-Stage "Test" "src/test2.py"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
