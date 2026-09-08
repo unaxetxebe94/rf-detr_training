@@ -62,6 +62,10 @@ class TileCreator:
                               above this value are treated as foreground.
         roi_padding         : Extra pixels added around the detected ROI
                               bounding box (clamped to image bounds).
+        min_retained_dimension_ratio:
+                              Minimum retained width and height ratio after
+                              tile clipping. An annotation is discarded if
+                              either dimension falls below this ratio.
     """
 
     def __init__(
@@ -77,7 +81,11 @@ class TileCreator:
         crop: bool = False,
         roi_threshold: int = 20,
         roi_padding: int = 100,
+        min_retained_dimension_ratio: float = 0.10,
     ):
+        if not 0 <= min_retained_dimension_ratio <= 1:
+            raise ValueError("min_retained_dimension_ratio debe estar entre 0 y 1")
+
         self.in_dir_path = in_dir_path
         self.out_dir_path = out_dir_path
         self.tile_size = tile_size
@@ -88,6 +96,7 @@ class TileCreator:
         self.crop = crop
         self.roi_threshold = roi_threshold
         self.roi_padding = roi_padding
+        self.min_retained_dimension_ratio = min_retained_dimension_ratio
         self.logger = get_logger(__name__, level=logging.DEBUG)
 
         # ── memory guard ────────────────────────────────────────────────
@@ -235,6 +244,28 @@ class TileCreator:
         x, y = arr[0::2], arr[1::2]
         return [float(x.min()), float(y.min()), float(np.ptp(x)), float(np.ptp(y))]
 
+    def _retains_min_dimension_ratio(
+        self,
+        clipped_bbox: list[float],
+        original_bbox: list[float],
+    ) -> bool:
+        if len(clipped_bbox) < 4 or len(original_bbox) < 4:
+            return False
+
+        original_w = float(original_bbox[2])
+        original_h = float(original_bbox[3])
+
+        if original_w <= 0 or original_h <= 0:
+            return False
+
+        clipped_w = float(clipped_bbox[2])
+        clipped_h = float(clipped_bbox[3])
+
+        return (
+            clipped_w / original_w >= self.min_retained_dimension_ratio
+            and clipped_h / original_h >= self.min_retained_dimension_ratio
+        )
+
     # ------------------------------------------------------------------ #
     # Spatial index
     # ------------------------------------------------------------------ #
@@ -290,6 +321,19 @@ class TileCreator:
                 bbox = self._segmentation_to_bbox(coco_segs)
                 area = float(bbox[2] * bbox[3])
                 original_ann = ann_map[idx]
+                original_bbox = original_ann.get("bbox")
+
+                if original_bbox is None:
+                    min_x, min_y, max_x, max_y = geom.bounds
+                    original_bbox = [min_x, min_y, max_x - min_x, max_y - min_y]
+
+                if not self._retains_min_dimension_ratio(bbox, original_bbox):
+                    self.logger.info(
+                        "Anotación descartada por retener menos del "
+                        f"{self.min_retained_dimension_ratio:.0%} en alguna "
+                        f"dimensión: original={original_bbox}, recortada={bbox}"
+                    )
+                    continue
 
                 new_anns.append(
                     {

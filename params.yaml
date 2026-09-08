@@ -9,6 +9,7 @@ final-data: C:\training_dataset
 preprocess:
   requires-preprocess: true
   saving-prob: 1.0  # Probabilidad de que se guarde una imagen aunque no tenga ninguna anotación
+  min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33
   apply-roi: false
   train-ratio: 0.7

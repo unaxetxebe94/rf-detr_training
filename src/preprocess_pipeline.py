@@ -46,6 +46,7 @@ if __name__ == "__main__":
     resize = params["preprocess"]["resize"]
     saving_prob = params["preprocess"]["saving-prob"]
     apply_roi = params["preprocess"]["apply-roi"]
+    min_retained_dimension_ratio = params["preprocess"].get("min-retained-dimension-ratio", 0.10)
     task_name = params["task-name"]
     train_ratio = float(params["preprocess"]["train-ratio"])
     test_ratio = float(params["preprocess"]["test-ratio"])
@@ -77,7 +78,8 @@ if __name__ == "__main__":
             n_jobs=4,
             max_images_in_ram=4,
             resize_factor=resize,
-            crop=apply_roi
+            crop=apply_roi,
+            min_retained_dimension_ratio=min_retained_dimension_ratio
         )
         splitter = Splitter(
             dataset_dir=str(formatted_dataset_dir),
