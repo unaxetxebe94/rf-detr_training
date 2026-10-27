@@ -1,10 +1,8 @@
 import os
+import sys
 
 os.environ["PATH"] = r"C:\Program Files\vips-dev-8.17\bin;" + os.environ["PATH"]
 
-import yaml
-import json
-import shutil
 import argparse
 import logging
 from pathlib import Path
@@ -20,16 +18,17 @@ logger = get_logger(__name__, level=logging.DEBUG)
 
 
 def is_dataset_formatted(dataset_dir: Path) -> bool:
-    if os.path.exists(formatted_dataset_dir):
-        train_exists = os.path.exists(formatted_dataset_dir / "train")
-        test_exists = os.path.exists(formatted_dataset_dir / "test")
-        valid_exists = os.path.exists(formatted_dataset_dir / "valid")
+    if os.path.exists(dataset_dir):
+        train_exists = os.path.exists(dataset_dir / "train")
+        test_exists = os.path.exists(dataset_dir / "test")
+        valid_exists = os.path.exists(dataset_dir / "valid")
         return train_exists and test_exists and valid_exists
     else: 
         logger.warning("No se encontró la carpeta que debería contener el dataset formateado.")
 
-if __name__ == "__main__":
 
+def main():
+    # El script rec
     parser = argparse.ArgumentParser()
     parser.add_argument("--is-master", action="store_true")
     args = parser.parse_args()
@@ -47,7 +46,6 @@ if __name__ == "__main__":
     saving_prob = params["preprocess"]["saving-prob"]
     apply_roi = params["preprocess"]["apply-roi"]
     min_retained_dimension_ratio = params["preprocess"].get("min-retained-dimension-ratio", 0.10)
-    task_name = params["task-name"]
     train_ratio = float(params["preprocess"]["train-ratio"])
     test_ratio = float(params["preprocess"]["test-ratio"])
     val_ratio = float(params["preprocess"]["val-ratio"])
@@ -113,3 +111,7 @@ if __name__ == "__main__":
                 raise Exception(f"No se han encontrado los datasets formateados en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
             
     logger.info("Se ha terminado el preprocesado de los datasets. Se procede a fusionarlos.")
+
+if __name__ == "__main__":
+    sys.exit(main())
+    
