@@ -228,7 +228,7 @@ Invoke-Stage "Entrenamiento" "src/train.py"
 Invoke-Stage "Procesado de resultados" "src/process_results.py"
 
 # 4. Test
-Invoke-Stage "Test" "src/test2.py"
+Invoke-Stage "Test" "src/test/__main__.py"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
