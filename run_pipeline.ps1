@@ -82,7 +82,7 @@ function Invoke-ParallelPreprocess {
             $CondaEnv,
             "python",
             "-u",
-            "src/preprocess_pipeline.py",
+            "src/preprocess/__main__.py",
             "--is-master"
         ) `
         -PassThru `
@@ -93,7 +93,7 @@ function Invoke-ParallelPreprocess {
         -FilePath "python" `
         -ArgumentList @(
             "-u",
-            "src/preprocess_pipeline.py"
+            "src/preprocess/__main__.py"
         ) `
         -PassThru `
         -NoNewWindow
@@ -207,7 +207,7 @@ if (-not $isDataPrepared) {
         # 2. Fusionar los datasets del master y slave
         Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
     } else {
-        Invoke-Stage "Fusión de datasets" "src/preprocess_pipeline.py" @("--is-master")
+        Invoke-Stage "Fusión de datasets" "src/preprocess/__main__.py" @("--is-master")
 
         $masterPath = Join-Path $finalData "master"
 

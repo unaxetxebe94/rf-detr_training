@@ -8,10 +8,10 @@ import logging
 from pathlib import Path
 
 from utils import set_seed, read_params
-from preprocess_stage.tile_creator import TileCreator
-from preprocess_stage.splitter import Splitter
-from preprocess_stage.augmenter import Augmenter
-from preprocess_stage.label_corrector import LabelCorrector
+from preprocess.tile_creator import TileCreator
+from preprocess.splitter import Splitter
+from preprocess.augmenter import Augmenter
+from preprocess.label_corrector import LabelCorrector
 from logger import get_logger
 
 logger = get_logger(__name__, level=logging.DEBUG)
