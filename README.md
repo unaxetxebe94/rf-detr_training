@@ -24,7 +24,7 @@ final-data: C:\training_dataset  # En este path se guardará el dataset final qu
 # Parámetros del preprocesamiento
 preprocess:
   requires-preprocess: true  # Si se debería de ejecutar el preprocesado o no
-  saving-prob: 1.0  # Probabilidad de que se guarde un tile aunque no tenga ninguna anotación
+  saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33  # Antes de dividir la imagen en tiles, se le aplica un resize a las imágenes
   apply-roi: false  # Si es true, primero se recortará la imagen de la imagen original y solo se trozeará esa parte. Si es false, el troceo será sobre la imagen entera. 
@@ -70,14 +70,23 @@ Simplemente guarda las funciones relacionadas con el logging.
 
 Guarda funciones de ayuda que se usan a lo largo del pipeline. 
 
-### `preprocess_pipeline.py`
+### `src\preprocess\__main__.py`
 
-El preprocesado es seguramente la parte más compleja del pipeline en cuanto a código. Este script simplemente funciona como un coordinador de las diferentes clases que creo en `.\src\preprocess_stage`. Cada clase se encarga de un paso distinto del preprocesado:
+Coordina funciones separadas por responsabilidad, sin clases de pasos ni logger:
 
-*  **TileCreator**: Se encarga de coger las imágenes enormes de $16000\times21000$ píxeles, y de dividirlos en trozos. También divide las anotaciones en tiles, calculando el solapamiento entre el trozo de la puerta y cada anotación.
-* **Splitter**: Divide todos los trozos en los splits de train, test y valid, intentando dividir las anotaciones de forma equitativa.
-* **Augmenter**: El entrenamiento estándar de RF-DETR usa muy pocas aumentaciones, por lo que en la carpeta de entrenamiento, por cada imagen creamos algunas copias con ciertas transformaciones.
-* **LabelCorrector**: Clase que se cerciora de que las IDs en las anotaciones empiezan en 0 y son secuenciales, en vez de tener un ID 7 y que el siguiente sea 20.
+1. `splitter.py` divide las **imágenes originales** en train/valid/test mediante estratificación. Los tiles de una misma puerta nunca se reparten entre splits.
+2. `tile_creation.py` recorta los tiles y sus anotaciones. En train sortea una sola vez por imagen: con `saving-prob` guarda todos sus tiles y, en caso contrario, solo los que contienen defectos. Valid y test guardan todos, también los de puertas sin defectos y los tiles negros.
+3. `augmenter.py` aumenta únicamente train.
+4. `label_corrector.py` corrige las cajas y mantiene el mismo mapeo de categorías en todos los splits.
 
+En test, `source_images` contiene copias completas de las puertas con el mismo `resize`, sin recorte ROI. El COCO conserva sus anotaciones y el origen de cada tile en esas coordenadas. La fusión master/slave mantiene estas copias y sus metadatos.
 
+### `src\test\__main__.py`
 
+Ejemplo: `python -m src.test --weights trainings\training\checkpoint_best_total.pth`.
+
+Se mantienen las métricas y carpetas por tile. En `test_output\metrics.json`, `image_metrics` añade TP/FP/FN/TN, precisión, recall, F1, accuracy y especificidad por puerta; `image_detection_metrics` añade las métricas de detección, incluidos mAP/mAR, sobre las cajas reconstruidas en la imagen completa. Los duplicados de tiles solapados se suprimen mediante NMS por clase con IoU 0.5.
+
+Las imágenes completas anotadas, con GT y predicciones lado a lado, se guardan en `test_output\doors\TP`, `FP`, `FN` y `TN`. Esta clasificación es binaria: basta cualquier predicción que supere su umbral de confianza, sin exigir coincidencia de clase ni IoU con GT. Las métricas de detección sí evalúan clase y solapamiento; una clasificación incorrecta cuenta como FP y FN.
+
+Es necesario regenerar los datasets antiguos para disponer del split por puerta, las imágenes completas y sus coordenadas.

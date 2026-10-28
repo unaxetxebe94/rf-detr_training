@@ -104,8 +104,10 @@ class PreprocessTests(unittest.TestCase):
                 self.assertFalse((output / "_annotations.coco.json").exists())
                 original_ids = []
                 augmented_count = 0
+                category_schemas = []
                 for split in SPLITS:
                     coco = read_annotations(output / split / "_annotations.coco.json")
+                    category_schemas.append(coco["categories"])
                     images = {img["id"]: img for img in coco["images"]}
                     self.assertEqual(len(images), len(coco["images"]))
                     self.assertEqual(
@@ -121,16 +123,135 @@ class PreprocessTests(unittest.TestCase):
                             self.assertEqual(split, "train")
                             augmented_count += 1
                         else:
-                            original_ids.append(img["id"])
+                            original_ids.append(img["source_image_id"])
                     for ann in coco["annotations"]:
                         self.assertIn(ann["image_id"], images)
                         self.assertIn(ann["category_id"], category_ids)
                         self.assertEqual(ann["bbox"], [1, 1, 10, 8])
                 self.assertEqual(len(original_ids), 20)
                 self.assertEqual(len(set(original_ids)), 20)
+                self.assertTrue(all(cats == category_schemas[0] for cats in category_schemas))
                 train = read_annotations(output / "train" / "_annotations.coco.json")
                 self.assertEqual(augmented_count * 2, len(train["images"]))
                 self.assertGreater(augmented_count, 0)
+                from src.test.image_evaluation import evaluate_images
+
+                test = read_annotations(output / "test" / "_annotations.coco.json")
+                predictions = {}
+                for ann in test["annotations"]:
+                    predictions.setdefault(ann["image_id"], []).append(
+                        (ann["bbox"], ann["category_id"], 0.9)
+                    )
+                with redirect_stdout(io.StringIO()):
+                    binary, detection = evaluate_images(
+                        test, predictions, output / "test", output / "door_evaluation"
+                    )
+                self.assertEqual(binary["Total TP"], len(test["source_images"]))
+                self.assertEqual(detection["mAP@50:95"], 1.0)
+
+    def test_pipeline_splits_sources_before_sampling_training_tiles(self):
+        source = self.root / "source1"
+        original = self.make_dataset(source, count=30)
+        original["annotations"] = [
+            ann for ann in original["annotations"] if ann["image_id"] % 2
+        ]
+        for img in original["images"]:
+            img.update(width=800, height=64)
+            with Image.new("RGB", (800, 64), "white") as image:
+                image.save(source / img["file_name"])
+        write_annotations(source / "_annotations.coco.json", original)
+        cfg = self.params["preprocess"]
+        cfg.update({"saving-prob": 0.0, "resize": 1.0, "augmentations-per-image": 0})
+        with redirect_stdout(io.StringIO()):
+            main(["--is-master"])
+        output = self.root / "output" / "master"
+        seen_sources = set()
+        for split in SPLITS:
+            coco = read_annotations(output / split / "_annotations.coco.json")
+            source_ids = {img["source_image_id"] for img in coco["images"]}
+            self.assertTrue(source_ids.isdisjoint(seen_sources))
+            seen_sources.update(source_ids)
+            if split == "train":
+                annotated_ids = {ann["image_id"] for ann in coco["annotations"]}
+                self.assertEqual(annotated_ids, {img["id"] for img in coco["images"]})
+            else:
+                self.assertEqual(len(coco["images"]), 3 * len(source_ids))
+            if split == "test":
+                self.assertTrue(any(not img["has_defects"] for img in coco["source_images"]))
+                self.assertEqual(len(source_ids), len(coco["source_images"]))
+                for img in coco["source_images"]:
+                    self.assertTrue((output / split / img["file_name"]).is_file())
+                    self.assertEqual((img["width"], img["height"]), (800, 64))
+        self.assertEqual(read_annotations(source / "_annotations.coco.json"), original)
+
+    def test_tiles_sample_once_per_source_not_per_tile(self):
+        from src.preprocess.tile_creation import create_tiles
+
+        source = self.root / "sampling"
+        coco = self.make_dataset(source, count=2)
+        for img in coco["images"]:
+            img.update(width=1000, height=64)
+            with Image.new("RGB", (1000, 64), "white") as image:
+                image.save(source / img["file_name"])
+        self.params["preprocess"]["resize"] = 1.0
+        self.params["preprocess"]["saving-prob"] = 0.5
+        with patch("src.preprocess.tile_creation.random.Random") as random_class:
+            random_class.return_value.random.side_effect = [0.2, 0.8]
+            with redirect_stdout(io.StringIO()):
+                create_tiles(self.root / "tiles", source, annotations=coco)
+            self.assertEqual(random_class.return_value.random.call_count, 2)
+        tiles = read_annotations(self.root / "tiles" / "_annotations.coco.json")
+        for stem, expected in (("image0_", 3), ("image1_", 1)):
+            self.assertEqual(
+                sum(img["file_name"].startswith(stem) for img in tiles["images"]), expected
+            )
+
+    def test_tiles_preserve_healthy_dark_sources_when_saving_all(self):
+        from src.preprocess.tile_creation import create_tiles
+
+        source = self.root / "healthy"
+        coco = self.make_dataset(source, count=1)
+        coco["annotations"] = []
+        with Image.new("RGB", (800, 64), "black") as image:
+            image.save(source / "image0.png")
+        self.params["preprocess"]["resize"] = 1.0
+        for probability, expected in ((0.0, 0), (1.0, 3)):
+            output = self.root / f"probability{probability}"
+            with redirect_stdout(io.StringIO()):
+                create_tiles(
+                    output, source, annotations=coco, saving_prob=probability,
+                    save_source_images=True,
+                )
+            result = read_annotations(output / "_annotations.coco.json")
+            self.assertEqual(len(result["images"]), expected)
+            self.assertEqual(len(result["source_images"]), 1)
+            self.assertFalse(result["source_images"][0]["has_defects"])
+
+    def test_tiles_map_roi_offsets_into_complete_resized_image(self):
+        from src.preprocess.tile_creation import create_tiles
+        from src.preprocess.roi import ROI
+
+        source = self.root / "roi"
+        coco = self.make_dataset(source, count=1)
+        with Image.new("RGB", (1000, 500), "white") as image:
+            image.save(source / "image0.png")
+        coco["annotations"][0].update(
+            bbox=[120, 60, 20, 16],
+            segmentation=[[120, 60, 140, 60, 140, 76, 120, 76]],
+        )
+        self.params["preprocess"]["apply-roi"] = True
+        with patch("src.preprocess.tile_creation.detect_roi", return_value=ROI(100, 50, 400, 200)):
+            with redirect_stdout(io.StringIO()):
+                create_tiles(
+                    self.root / "roi_tiles", source, annotations=coco,
+                    saving_prob=1.0, save_source_images=True,
+                )
+        result = read_annotations(self.root / "roi_tiles" / "_annotations.coco.json")
+        self.assertEqual(result["images"][0]["tile_origin"], [50, 25])
+        self.assertEqual(result["annotations"][0]["bbox"], [10, 5, 10, 8])
+        full = result["source_images"][0]
+        self.assertEqual((full["width"], full["height"]), (500, 250))
+        self.assertEqual(full["annotations"][0]["bbox"], [60, 30, 10, 8])
 
     def test_augmentation_preserves_geometry_and_is_reproducible(self):
         source = self.root / "images"
