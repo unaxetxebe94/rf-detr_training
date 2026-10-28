@@ -33,7 +33,6 @@ MODEL_SIZE_TO_CLASS_MAP = {
 
 if __name__ == "__main__":
 
-
     with open("params.yaml", mode="r") as f:
         params = yaml.safe_load(f)
 

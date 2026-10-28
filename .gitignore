@@ -27,5 +27,6 @@ __pycache__
 data
 models
 test_*
+!tests/test_*.py
 
 *.zip

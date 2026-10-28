@@ -1,117 +1,72 @@
-import os
-import sys
-
-os.environ["PATH"] = r"C:\Program Files\vips-dev-8.17\bin;" + os.environ["PATH"]
-
 import argparse
-import logging
+import os
+import random
+import sys
 from pathlib import Path
 
-from utils import set_seed, read_params
-from preprocess.tile_creator import TileCreator
-from preprocess.splitter import Splitter
-from preprocess.augmenter import Augmenter
-from preprocess.label_corrector import LabelCorrector
-from logger import get_logger
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "src.preprocess"
 
-logger = get_logger(__name__, level=logging.DEBUG)
+from ..params import get_global_config, get_preprocess_config
+from .annotations import SPLITS
 
 
 def is_dataset_formatted(dataset_dir: Path) -> bool:
-    if os.path.exists(dataset_dir):
-        train_exists = os.path.exists(dataset_dir / "train")
-        test_exists = os.path.exists(dataset_dir / "test")
-        valid_exists = os.path.exists(dataset_dir / "valid")
-        return train_exists and test_exists and valid_exists
-    else: 
-        logger.warning("No se encontró la carpeta que debería contener el dataset formateado.")
+    dataset_dir = Path(dataset_dir)
+    return all(
+        (dataset_dir / split).is_dir()
+        and (dataset_dir / split / "_annotations.coco.json").is_file()
+        for split in SPLITS
+    )
 
 
-def main():
-    # El script rec
-    parser = argparse.ArgumentParser()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Preprocesado de datasets COCO.")
     parser.add_argument("--is-master", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    global_cfg = get_global_config()
+    cfg = get_preprocess_config()
+    input_dir = global_cfg.data_src1 if args.is_master else global_cfg.data_src2
+    output_dir = (
+        global_cfg.final_data / "master"
+        if args.is_master
+        else global_cfg.data_src2 / "formatted"
+    )
 
-    is_master = args.is_master
-
-    logger.info("\n\n\n====================== INICIANDO PIPELINE ======================")
-
-    params = read_params()
-
-    # Obtenemos los parámetros de preprocesamiento de params.yaml
-    input_folder = params["data-src1"] if is_master else params["data-src2"]
-    requires_preprocess = params["preprocess"]["requires-preprocess"]
-    resize = params["preprocess"]["resize"]
-    saving_prob = params["preprocess"]["saving-prob"]
-    apply_roi = params["preprocess"]["apply-roi"]
-    min_retained_dimension_ratio = params["preprocess"].get("min-retained-dimension-ratio", 0.10)
-    train_ratio = float(params["preprocess"]["train-ratio"])
-    test_ratio = float(params["preprocess"]["test-ratio"])
-    val_ratio = float(params["preprocess"]["val-ratio"])
-    augmentations_per_image = params["preprocess"]["augmentations-per-image"]
-    max_transforms_per_sample = params["preprocess"]["max-transforms-per-sample"]
-    if train_ratio + val_ratio + test_ratio != 1.0: raise Exception("Los split ratios no suman 1.0!")
-    seed = params["seed"]
-    model_type = params["model-type"].lower()
-    set_seed(seed=seed)
-    formatted_dataset_dir = Path(params["final-data"]) / "master" if is_master else Path(params["data-src2"]) / "formatted"
-
-
-    # Inicializamos los pasos del pipeline si se requiere
-    if requires_preprocess:
-        # Mapeo de los tiles de cada tipo de modelo
-        tile_size_mapper = {
-            "nano": 384,
-            "small": 512,
-            "medium": 576,
-            "large": 704
-        }
-        # Preparamos los tres pasos del pipeline
-        tile_creator = TileCreator(
-            in_dir_path=input_folder,
-            out_dir_path=str(formatted_dataset_dir),
-            tile_size=tile_size_mapper[model_type],
-            saving_prob=saving_prob,
-            n_jobs=4,
-            max_images_in_ram=4,
-            resize_factor=resize,
-            crop=apply_roi,
-            min_retained_dimension_ratio=min_retained_dimension_ratio
-        )
-        splitter = Splitter(
-            dataset_dir=str(formatted_dataset_dir),
-            output_dir=str(formatted_dataset_dir),
-            train_ratio=train_ratio,
-            val_ratio=val_ratio,
-            test_ratio=test_ratio,
-            seed=seed,
-            image_action="move"
-        )
-        augmenter = Augmenter(
-            input_dir=str(formatted_dataset_dir / "train"),
-            output_dir=str(formatted_dataset_dir / "train"),
-            augmentations_per_image=augmentations_per_image,
-            max_transforms_per_sample=max_transforms_per_sample,
-            seed=seed
-        )
-        label_corrector = LabelCorrector(
-            dataset_path=str(formatted_dataset_dir)
-        )
-        # Ejecutamos el pipeline
-        tile_creator.run()
-        splitter.run()
-        augmenter.run()
-        label_corrector.run()
-    else:
-        if (is_dataset_formatted(formatted_dataset_dir)): logger.warning("No se ha encontrado el dataset formateado donde debería estar. Se procederá a fusionar los datasets de entrada asumiendo que ya están formateados y preparados para ello.")    
+    if not cfg.requires_preprocess:
+        if is_dataset_formatted(output_dir):
+            print(f"Dataset ya formateado: {output_dir}")
+        elif all(is_dataset_formatted(path) for path in (
+            global_cfg.data_src1, global_cfg.data_src2
+        )):
+            print("Los datasets de entrada ya estan formateados.")
         else:
-            # Si no se requiere preprocesar, se asumirá que los datasets están formateados y preparados para unirlos
-            if not (is_dataset_formatted(params["data-src1"]) and is_dataset_formatted(params["data-src2"])):
-                raise Exception(f"No se han encontrado los datasets formateados en los paths especificados --> SRC1: {params['data-src1']} - SRC2: {params['data-src2']}")
-            
-    logger.info("Se ha terminado el preprocesado de los datasets. Se procede a fusionarlos.")
+            raise FileNotFoundError(
+                f"No se ha encontrado el dataset formateado en {output_dir} "
+                f"ni ambos datasets en {global_cfg.data_src1} y {global_cfg.data_src2}."
+            )
+        return 0
+
+    vips_bin = Path(r"C:\Program Files\vips-dev-8.17\bin")
+    if os.name == "nt" and vips_bin.is_dir():
+        os.environ["PATH"] = str(vips_bin) + os.pathsep + os.environ.get("PATH", "")
+
+    from .augmenter import augment_dataset
+    from .label_corrector import correct_labels
+    from .splitter import split_dataset, validate_ratios
+    from .tile_creation import create_tiles
+
+    validate_ratios(cfg.train_ratio, cfg.val_ratio, cfg.test_ratio)
+    random.seed(global_cfg.seed)
+    print(f"Iniciando preprocesado: {input_dir} -> {output_dir}")
+    create_tiles(output_dir, input_dir=input_dir)
+    split_dataset(output_dir)
+    augment_dataset(output_dir / "train")
+    correct_labels(output_dir)
+    print(f"Preprocesado completado: {output_dir}")
+    return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
-    
