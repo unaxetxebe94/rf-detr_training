@@ -1,17 +1,17 @@
-task-name: test_top_bottom
+task-name: test_bottom
 model-type: large
 seed: 42
 
-data-src1: E:\Images for labelling\Top  # Dataset local
+data-src1: D:\Images for multiverse\Bottom  # Dataset local
 data-src2: \\10.139.140.20\Bottom # Dataset remoto
-final-data: C:\training_dataset
+final-data: D:\training_dataset_rfdetr
 
 preprocess:
   requires-preprocess: true
   saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33
-  apply-roi: false
+  apply-roi: true
   train-ratio: 0.7
   test-ratio: 0.15
   val-ratio: 0.15
