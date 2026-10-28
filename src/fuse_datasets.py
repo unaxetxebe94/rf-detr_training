@@ -3,8 +3,6 @@ import os
 import json
 import shutil
 import logging 
-from logger import get_logger
-from utils import read_params, save_mapping
 from pathlib import Path
 
 class DatasetFuser:
@@ -34,6 +32,11 @@ class DatasetFuser:
                 src = os.path.join(dataset_path, file)
                 dst = os.path.join(output_path, file)
                 shutil.copy2(src, dst)
+        source_dir = Path(dataset_path) / "source_images"
+        if source_dir.is_dir():
+            shutil.copytree(
+                source_dir, Path(output_path) / "source_images", dirs_exist_ok=True
+            )
 
 
     @staticmethod
@@ -102,6 +105,16 @@ class DatasetFuser:
                 
             next_image_id += 1
 
+        source_images = annotations1.get("source_images", [])[:]
+        for source in annotations2.get("source_images", []):
+            source_images.append({
+                **source,
+                "annotations": [
+                    {**ann, "category_id": category_mapping[ann["category_id"]]}
+                    for ann in source["annotations"]
+                ],
+            })
+
         # Crear el dataset fusionado
         fused_dataset = {
             'info': {
@@ -110,7 +123,8 @@ class DatasetFuser:
             'licenses': ['Only usable for members of Biele Group.'],
             'categories': fused_categories,
             'images': fused_images,
-            'annotations': fused_annotations
+            'annotations': fused_annotations,
+            'source_images': source_images,
         }
         
         os.makedirs(output_path, exist_ok=True)
@@ -200,6 +214,8 @@ def save_preprocess_info(params: dict, dataset_dir: Path, output_dir: Path) -> N
     logger.info(f"preprocess_info.json guardado → {output_path}")
 
 if __name__ == "__main__":
+    from logger import get_logger
+    from utils import read_params, save_mapping
 
     logger = get_logger(__name__, level=logging.DEBUG)
 

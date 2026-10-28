@@ -1,5 +1,5 @@
 import numpy as np
-from iou import compute_iou
+from .iou import compute_iou
 
 
 def find_optimal_thresholds(raw_preds_by_img, gt_by_img, category_id_to_name,

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from iou import box_xywh_to_xyxy
+from .iou import box_xywh_to_xyxy
 
 
 COLORS = {

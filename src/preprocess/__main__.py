@@ -1,5 +1,4 @@
 import argparse
-import os
 import random
 import sys
 from pathlib import Path
@@ -9,7 +8,7 @@ if not __package__:
     __package__ = "src.preprocess"
 
 from ..params import get_global_config, get_preprocess_config
-from .annotations import SPLITS
+from .annotations import SPLITS, read_annotations
 
 
 def is_dataset_formatted(dataset_dir: Path) -> bool:
@@ -48,20 +47,23 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
-    vips_bin = Path(r"C:\Program Files\vips-dev-8.17\bin")
-    if os.name == "nt" and vips_bin.is_dir():
-        os.environ["PATH"] = str(vips_bin) + os.pathsep + os.environ.get("PATH", "")
-
     from .augmenter import augment_dataset
     from .label_corrector import correct_labels
-    from .splitter import split_dataset, validate_ratios
+    from .splitter import split_annotations, validate_ratios
     from .tile_creation import create_tiles
 
     validate_ratios(cfg.train_ratio, cfg.val_ratio, cfg.test_ratio)
     random.seed(global_cfg.seed)
     print(f"Iniciando preprocesado: {input_dir} -> {output_dir}")
-    create_tiles(output_dir, input_dir=input_dir)
-    split_dataset(output_dir)
+    splits = split_annotations(read_annotations(input_dir / "_annotations.coco.json"))
+    for split, annotations in splits.items():
+        create_tiles(
+            output_dir / split,
+            input_dir=input_dir,
+            annotations=annotations,
+            saving_prob=cfg.saving_prob if split == "train" else 1.0,
+            save_source_images=split == "test",
+        )
     augment_dataset(output_dir / "train")
     correct_labels(output_dir)
     print(f"Preprocesado completado: {output_dir}")

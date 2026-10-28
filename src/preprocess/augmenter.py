@@ -56,6 +56,7 @@ def augment_dataset(input_dir: Path, output_dir: Path | None = None) -> Path:
                 try:
                     aug_image.save(output_dir / aug_filename)
                     images.append({
+                        **img_info,
                         "id": next_image_id,
                         "file_name": aug_filename,
                         "width": aug_image.width,

@@ -5,10 +5,7 @@ from PIL import Image
 from .annotations import SPLITS, read_annotations, validate_coco, write_annotations
 
 
-def _correct_split(split_dir: Path) -> None:
-    annotations_path = split_dir / "_annotations.coco.json"
-    coco = read_annotations(annotations_path)
-    validate_coco(coco)
+def _clean_annotations(coco: dict, split_dir: Path) -> None:
     images_by_id = {img["id"]: img for img in coco["images"]}
     dimensions = {}
 
@@ -28,24 +25,42 @@ def _correct_split(split_dir: Path) -> None:
         if w >= 4 or h >= 4:
             annotations.append(ann)
 
-    used_ids = {ann["category_id"] for ann in annotations}
-    categories = [cat for cat in coco["categories"] if cat["id"] in used_ids]
-    category_mapping = {cat["id"]: idx for idx, cat in enumerate(categories)}
-    for cat in categories:
-        cat["id"] = category_mapping[cat["id"]]
-    for ann in annotations:
-        ann["category_id"] = category_mapping[ann["category_id"]]
-
     coco["info"] = {
         "description": "Dataset used dor the training of the B1375 proyect in Biele Digital"
     }
     coco["licenses"] = ["Only usable by Biele Group or companies collaborating with Biele Group"]
-    coco["categories"] = categories
     coco["annotations"] = annotations
-    write_annotations(annotations_path, coco)
-    print(f"Etiquetas corregidas: {split_dir}")
 
 
 def correct_labels(dataset_path: Path) -> None:
+    datasets = {}
     for split in SPLITS:
-        _correct_split(Path(dataset_path) / split)
+        split_dir = Path(dataset_path) / split
+        coco = read_annotations(split_dir / "_annotations.coco.json")
+        validate_coco(coco)
+        _clean_annotations(coco, split_dir)
+        datasets[split] = coco
+
+    all_annotations = [
+        ann for coco in datasets.values()
+        for ann in coco["annotations"] + [
+            ann for source in coco.get("source_images", [])
+            for ann in source["annotations"]
+        ]
+    ]
+    used_ids = {ann["category_id"] for ann in all_annotations}
+    categories = {
+        cat["id"]: cat for coco in datasets.values() for cat in coco["categories"]
+    }
+    kept_ids = [old_id for old_id in categories if old_id in used_ids]
+    mapping = {old_id: idx for idx, old_id in enumerate(kept_ids)}
+    final_categories = [
+        {**categories[old_id], "id": new_id} for old_id, new_id in mapping.items()
+    ]
+    for ann in all_annotations:
+        ann["category_id"] = mapping[ann["category_id"]]
+    for split, coco in datasets.items():
+        coco["categories"] = final_categories
+        split_dir = Path(dataset_path) / split
+        write_annotations(split_dir / "_annotations.coco.json", coco)
+        print(f"Etiquetas corregidas: {split_dir}")

@@ -1,5 +1,5 @@
 import numpy as np
-from iou import compute_iou
+from .iou import compute_iou
 
 
 def match_predictions(pred_boxes, pred_labels, pred_scores,

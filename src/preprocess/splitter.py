@@ -64,6 +64,29 @@ def _stratify(
     return {"train": train_ids, "valid": val_ids, "test": test_ids}
 
 
+def split_annotations(coco: dict) -> dict[str, dict]:
+    global_cfg = get_global_config()
+    cfg = get_preprocess_config()
+    validate_ratios(cfg.train_ratio, cfg.val_ratio, cfg.test_ratio)
+    validate_coco(coco)
+    image_ids, labels = _build_label_matrix(coco)
+    split_ids = _stratify(
+        image_ids, labels, cfg.train_ratio, cfg.val_ratio, global_cfg.seed
+    )
+    images_by_id = {img["id"]: img for img in coco["images"]}
+    anns_by_image = group_annotations_by_image(coco)
+    return {
+        split: {
+            **coco,
+            "images": [images_by_id[image_id] for image_id in ids],
+            "annotations": [
+                ann for image_id in ids for ann in anns_by_image.get(image_id, [])
+            ],
+        }
+        for split, ids in split_ids.items()
+    }
+
+
 def _write_splits(
     coco: dict,
     split_ids: dict[str, list[int]],
@@ -109,20 +132,16 @@ def _write_splits(
 def split_dataset(
     dataset_dir: Path, output_dir: Path | None = None, *, image_action: str = "move"
 ) -> dict[str, Path]:
-    global_cfg = get_global_config()
-    cfg = get_preprocess_config()
-    validate_ratios(cfg.train_ratio, cfg.val_ratio, cfg.test_ratio)
     if image_action not in ("copy", "move", "ignore"):
         raise ValueError("image_action debe ser 'copy', 'move' o 'ignore'.")
     dataset_dir = Path(dataset_dir)
     output_dir = Path(output_dir) if output_dir is not None else dataset_dir
     annotations_path = dataset_dir / "_annotations.coco.json"
     coco = read_annotations(annotations_path)
-    validate_coco(coco)
-    image_ids, labels = _build_label_matrix(coco)
-    split_ids = _stratify(
-        image_ids, labels, cfg.train_ratio, cfg.val_ratio, global_cfg.seed
-    )
+    split_ids = {
+        split: [img["id"] for img in subset["images"]]
+        for split, subset in split_annotations(coco).items()
+    }
     output_paths = _write_splits(coco, split_ids, dataset_dir, output_dir, image_action)
     annotations_path.unlink()
     return output_paths

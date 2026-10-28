@@ -1,239 +1,163 @@
-import os
 import gc
 import random
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from uuid import NAMESPACE_URL, uuid5
 
 from .image import open_image
-from .roi import ROI, detect_roi
+from .roi import detect_roi
 from .geometry import build_geometry_index, calculate_overlap
-from .annotations import read_annotations, transform_annotations, write_annotations
-from ..params import GlobalConfig, get_global_config, PreprocessConfig, get_preprocess_config
+from .annotations import (
+    group_annotations_by_image,
+    read_annotations,
+    transform_annotations,
+    write_annotations,
+)
+from ..params import get_global_config, get_preprocess_config
 
 
-_MAX_IMAGES_IN_RAM = 4
-_RAM_SEMAPHORE = threading.Semaphore(max(1, _MAX_IMAGES_IN_RAM))
-_BLACK_THRESHOLD = 10
-TILE_SIZE_MAPPER = {
-    "nano": 384,
-    "small": 512,
-    "medium": 576,
-    "large": 704
-}
-
-
-def _process_image_inner(
-    img_info: dict,
-    anns: dict,
-    start_img_id: int,
-    start_ann_id: int,
-    img_path: str,
-    img_name: str,
-    global_cfg: GlobalConfig,
-    preprocess_cfg: PreprocessConfig,
-    output_dir: Path
-) -> tuple[list, list, int, int]:
-    img = None
-    try:
-        # ── 1. Load ──────────────────────────────────────────────────
-        try:
-            img = open_image(img_path)
-        except Exception as e:
-            print(f"Cannot open {img_path}: {e}")
-            return [], [], start_img_id, start_ann_id
-
-        orig_w, orig_h = img.width, img.height
-        base_name = os.path.splitext(img_name)[0]
-
-        # ── 2. Optional ROI crop (in memory) ─────────────────────────
-        roi: ROI | None = None
-        if preprocess_cfg.apply_roi:
-            roi = detect_roi(img_path, orig_w, orig_h)
-            cropped = img.crop(roi.x, roi.y, roi.w, roi.h)
-            del img           # release original before allocating resize
-            img = cropped
-
-        # ── 3. Optional resize (in memory) ───────────────────────────
-        f = preprocess_cfg.resize
-        if f != 1.0:
-            resized = img.resize(f)
-            del img           # release pre-resize copy
-            img = resized
-
-        img_w, img_h = img.width, img.height
-
-        # ── 4. Transform annotations ──────────────────────────────────
-        img_id = img_info.get("id")
-        raw_anns = [
-            a for a in anns.get("annotations", []) if a.get("image_id") == img_id
-        ]
-        transformed_anns = transform_annotations(raw_anns, roi, f)
-
-        if not transformed_anns:
-            print(f"Sin anotaciones para {img_name}, se omite.")
-            return [], [], start_img_id, start_ann_id
-
-        # ── 5. Build spatial index ────────────────────────────────────
-        geometries, ann_map, tree = build_geometry_index(transformed_anns)
-        if not tree:
-            return [], [], start_img_id, start_ann_id
-
-        new_images, new_annotations = [], []
-        curr_img_id = start_img_id
-        curr_ann_id = start_ann_id
-
-        # ── 6. Tile ───────────────────────────────────────────────────
-        tile_size = TILE_SIZE_MAPPER[global_cfg.model_type]
-        for tile_y in range(0, img_h, tile_size):
-            for tile_x in range(0, img_w, tile_size):
-                actual_x = min(tile_x, max(0, img_w - tile_size))
-                actual_y = min(tile_y, max(0, img_h - tile_size))
-                tile_w = min(tile_size, img_w)
-                tile_h = min(tile_size, img_h)
-
-                tile_anns, next_ann_id = calculate_overlap(
-                    actual_x, actual_y, tile_w, tile_h,
-                    curr_img_id, curr_ann_id,
-                    geometries, ann_map, tree, preprocess_cfg.min_retained_dimension_ratio
-                )
-
-                if not tile_anns and preprocess_cfg.saving_prob < random.random():
-                    continue
-
-                final_tile_name = (
-                    f"{base_name}_tile_{actual_x}_{actual_y}.png"
-                )
-                final_tile_path = os.path.join(
-                    output_dir, final_tile_name
-                )
-
-                try:
-                    tile_img = img.crop(actual_x, actual_y, tile_w, tile_h)
-
-                    if tile_img.avg() < _BLACK_THRESHOLD:
-                        del tile_img
-                        continue
-
-                    tile_img.write_to_file(final_tile_path)
-                    del tile_img   # free each tile after writing
-                except Exception as e:
-                    print(
-                        f"Error al extraer tile ({tile_x},{tile_y}) "
-                        f"de {img_name}: {e}"
-                    )
-                    continue
-
-                new_images.append(
-                    {
-                        "id": curr_img_id,
-                        "file_name": final_tile_name,
-                        "width": tile_w,
-                        "height": tile_h,
-                    }
-                )
-                new_annotations.extend(tile_anns)
-                curr_ann_id = next_ann_id
-                curr_img_id += 1
-
-        return new_images, new_annotations, curr_img_id, curr_ann_id
-
-    finally:
-        # Always release the pyvips image and nudge the GC,
-        # even if an exception occurs mid-processing.
-        if img is not None:
-            del img
-        gc.collect()
+_RAM_SEMAPHORE = threading.Semaphore(4)
+TILE_SIZE_MAPPER = {"nano": 384, "small": 512, "medium": 576, "large": 704}
 
 
 def _process_image(
     img_info: dict,
-    anns: dict,
-    start_img_id: int,
-    start_ann_id: int,
-    global_cfg: GlobalConfig,
-    preprocess_cfg: PreprocessConfig,
-    output_dir: Path,
+    raw_anns: list[dict],
     input_dir: Path,
-) -> tuple[list, list, int, int]:
-    img_name = img_info["file_name"]
-    img_path = os.path.join(input_dir, img_name)
-
-    if not os.path.exists(img_path):
-        print(f"Imagen no encontrada: {img_path}")
-        return [], [], start_img_id, start_ann_id
-
-    # ── Acquire RAM slot before any large allocation ─────────────────
-    # This blocks the thread until a slot is free, preventing multiple
-    # workers from simultaneously holding large decoded images in RAM.
+    output_dir: Path,
+    tile_size: int,
+    cfg,
+    save_empty: bool,
+    save_source_image: bool,
+) -> tuple[list[dict], list[dict], dict | None]:
     with _RAM_SEMAPHORE:
-        return _process_image_inner(
-            img_info, anns, start_img_id, start_ann_id, img_path, img_name, global_cfg, preprocess_cfg, output_dir
-        )
+        try:
+            return _process_image_inner(
+                img_info, raw_anns, input_dir, output_dir, tile_size,
+                cfg, save_empty, save_source_image,
+            )
+        finally:
+            gc.collect()
 
 
-def create_tiles(output_dir: Path, input_dir: Path | None = None) -> None:
-    global_cfg: GlobalConfig = get_global_config()
-    preprocess_cfg: PreprocessConfig = get_preprocess_config()
+def _process_image_inner(
+    img_info, raw_anns, input_dir, output_dir, tile_size, cfg,
+    save_empty, save_source_image,
+):
+    img_path = input_dir / img_info["file_name"]
+    source_id = uuid5(NAMESPACE_URL, str(img_path.resolve())).hex
+    img = open_image(str(img_path))
+    orig_w, orig_h = img.width, img.height
+    source_image = None
+    if save_source_image:
+        full = img.resize(cfg.resize) if cfg.resize != 1.0 else img
+        filename = str(Path("source_images") / f"{source_id}.png")
+        full.write_to_file(str(output_dir / filename))
+        source_image = {
+            "id": source_id,
+            "file_name": filename,
+            "original_file_name": img_info["file_name"],
+            "width": full.width,
+            "height": full.height,
+            "has_defects": bool(raw_anns),
+            "annotations": transform_annotations(raw_anns, None, cfg.resize),
+        }
+        del full
+
+    roi = detect_roi(str(img_path), orig_w, orig_h) if cfg.apply_roi else None
+    if roi is not None:
+        img = img.crop(roi.x, roi.y, roi.w, roi.h)
+    if cfg.resize != 1.0:
+        img = img.resize(cfg.resize)
+    transformed_anns = transform_annotations(raw_anns, roi, cfg.resize)
+    geometries, ann_map, tree = build_geometry_index(transformed_anns)
+    images, annotations = [], []
+    image_id = ann_id = 1
+    origin_x = roi.x * cfg.resize if roi else 0
+    origin_y = roi.y * cfg.resize if roi else 0
+    xs = sorted({min(x, max(0, img.width - tile_size))
+                 for x in range(0, img.width, tile_size)})
+    ys = sorted({min(y, max(0, img.height - tile_size))
+                 for y in range(0, img.height, tile_size)})
+    width, height = min(tile_size, img.width), min(tile_size, img.height)
+    for y in ys:
+        for x in xs:
+            tile_anns, next_ann_id = ([], ann_id) if tree is None else calculate_overlap(
+                x, y, width, height, image_id, ann_id,
+                geometries, ann_map, tree, cfg.min_retained_dimension_ratio,
+            )
+            if not tile_anns and not save_empty:
+                continue
+            filename = f"{img_path.stem}_{source_id}_tile_{x}_{y}.png"
+            tile = img.crop(x, y, width, height)
+            tile.write_to_file(str(output_dir / filename))
+            del tile
+            images.append({
+                "id": image_id,
+                "file_name": filename,
+                "width": width,
+                "height": height,
+                "source_image_id": source_id,
+                "tile_origin": [x + origin_x, y + origin_y],
+            })
+            annotations.extend(tile_anns)
+            image_id += 1
+            ann_id = next_ann_id
+    return images, annotations, source_image
+
+
+def create_tiles(
+    output_dir: Path,
+    input_dir: Path | None = None,
+    *,
+    annotations: dict | None = None,
+    saving_prob: float | None = None,
+    save_source_images: bool = False,
+) -> None:
+    global_cfg = get_global_config()
+    cfg = get_preprocess_config()
+    probability = cfg.saving_prob if saving_prob is None else saving_prob
+    if not 0 <= probability <= 1:
+        raise ValueError("saving_prob debe estar en [0, 1].")
     input_dir = Path(input_dir) if input_dir is not None else global_cfg.data_src1
     output_dir = Path(output_dir)
-
-    anns = read_annotations(input_dir / "_annotations.coco.json")
-
-    images_info = anns.get("images", [])
-    if not images_info:
-        valid_exts = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
-        for idx, fname in enumerate(os.listdir(input_dir)):
-            if Path(fname).suffix.lower() in valid_exts:
-                images_info.append({"id": idx, "file_name": fname})
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    final_images: list[dict] = []
-    final_annotations: list[dict] = []
-    global_img_id = 1
-    global_ann_id = 1
-
-    print(
-        f"Iniciando procesado de {len(images_info)} imágenes "
-        f"con {preprocess_cfg.n_jobs} hilos "
-        f"(resize={preprocess_cfg.resize}, crop={preprocess_cfg.apply_roi})..."
+    coco = annotations if annotations is not None else read_annotations(
+        input_dir / "_annotations.coco.json"
     )
-
-    with ThreadPoolExecutor(max_workers=preprocess_cfg.n_jobs) as executor:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if save_source_images:
+        (output_dir / "source_images").mkdir(exist_ok=True)
+    grouped = group_annotations_by_image(coco)
+    rng = random.Random(global_cfg.seed)
+    # Decide before scheduling workers so sampling is independent of thread order.
+    jobs = [(image, rng.random() < probability) for image in coco["images"]]
+    final_images, final_annotations, sources = [], [], []
+    print(f"Creando tiles de {len(jobs)} imagenes en {output_dir}.")
+    with ThreadPoolExecutor(max_workers=cfg.n_jobs) as executor:
         futures = [
             executor.submit(
-                _process_image, img_info, anns, 1, 1,
-                global_cfg, preprocess_cfg, output_dir, input_dir,
+                _process_image, image, grouped.get(image["id"], []),
+                input_dir, output_dir, TILE_SIZE_MAPPER[global_cfg.model_type],
+                cfg, save_empty, save_source_images,
             )
-            for img_info in images_info
+            for image, save_empty in jobs
         ]
-        for future in as_completed(futures):
-            try:
-                new_imgs, new_anns, _, _ = future.result()
-
-                local_img_map: dict[int, int] = {}
-                for img in new_imgs:
-                    local_img_map[img["id"]] = global_img_id
-                    img["id"] = global_img_id
-                    final_images.append(img)
-                    global_img_id += 1
-
-                for ann in new_anns:
-                    ann["id"] = global_ann_id
-                    ann["image_id"] = local_img_map[ann["image_id"]]
-                    final_annotations.append(ann)
-                    global_ann_id += 1
-
-            except Exception as e:
-                print(f"Error procesando imagen en worker: {e}")
-
-    print("Procesado completado.")
-
-    final_dict = {
-        "images": final_images,
-        "annotations": final_annotations,
-        "categories": anns.get("categories", []),
+        for future in futures:
+            images, anns, source = future.result()
+            local_ids = {}
+            for image in images:
+                local_ids[image["id"]] = len(final_images) + 1
+                image["id"] = len(final_images) + 1
+                final_images.append(image)
+            for ann in anns:
+                ann["id"] = len(final_annotations) + 1
+                ann["image_id"] = local_ids[ann["image_id"]]
+                final_annotations.append(ann)
+            if source is not None:
+                sources.append(source)
+    result = {
+        **coco, "images": final_images, "annotations": final_annotations,
+        "source_images": sources,
     }
-
-    write_annotations(output_dir / "_annotations.coco.json", final_dict)
+    write_annotations(output_dir / "_annotations.coco.json", result)
