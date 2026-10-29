@@ -47,7 +47,11 @@ def _process_image_inner(
 ):
     img_path = input_dir / img_info["file_name"]
     source_id = uuid5(NAMESPACE_URL, str(img_path.resolve())).hex
-    img = open_image(str(img_path))
+    try: 
+        img = open_image(str(img_path))
+    except:
+        print(f"Failed to open {img_path}")
+        return [], [], None
     orig_w, orig_h = img.width, img.height
     source_image = None
     if save_source_image:
