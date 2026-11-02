@@ -12,7 +12,7 @@ if not __package__:
 from ..params import get_global_config
 from ..preprocess.annotations import group_annotations_by_image, read_annotations
 from .iou import xyxy_to_xywh
-from .thresholds import find_optimal_thresholds
+from .thresholds import select_thresholds
 from .matching import match_predictions
 from .drawing import render_image
 from .metrics import detection_metrics
@@ -25,25 +25,21 @@ DEFAULT_THRESHOLD = 0.5
 PRETRAIN_WEIGHTS = Path("trainings") / "training" / "checkpoint_best_total.pth"
 
 
-def evaluate_dataset(model, test_dir: Path, output_dir: Path) -> dict:
-    test_dir, output_dir = Path(test_dir), Path(output_dir)
-    coco = read_annotations(test_dir / "_annotations.coco.json")
-    reconstruct_predictions(coco, {})
-    category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
+def _ground_truth(coco):
     annotations = group_annotations_by_image(coco)
-    ground_truth = {
+    return {
         image["id"]: [
             (ann["bbox"], ann["category_id"])
             for ann in annotations.get(image["id"], [])
         ]
         for image in coco["images"]
     }
-    for folder in ("TP", "FP", "FN", "misclassified"):
-        (output_dir / folder).mkdir(parents=True, exist_ok=True)
 
+
+def _predict_dataset(model, directory, coco):
     raw_predictions = {}
     for image in coco["images"]:
-        image_path = test_dir / image["file_name"]
+        image_path = directory / image["file_name"]
         if not image_path.is_file():
             raise FileNotFoundError(image_path)
         prediction = model.predict(str(image_path), threshold=RAW_THRESHOLD)
@@ -54,14 +50,43 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path) -> dict:
             )
         ]
         print(f"{image['file_name']}: {len(raw_predictions[image['id']])} detecciones.")
+    return raw_predictions
 
-    thresholds = find_optimal_thresholds(
-        raw_predictions, ground_truth, category_names, iou_threshold=IOU_THRESHOLD
+
+def evaluate_dataset(model, test_dir: Path, output_dir: Path,
+                     valid_dir: Path | None = None) -> dict:
+    test_dir, output_dir = Path(test_dir), Path(output_dir)
+    valid_dir = Path(valid_dir) if valid_dir is not None else test_dir.parent / "valid"
+    if valid_dir.resolve() == test_dir.resolve():
+        raise ValueError("Validation and test must use separate directories.")
+    coco = read_annotations(test_dir / "_annotations.coco.json")
+    reconstruct_predictions(coco, {})
+    validation = read_annotations(valid_dir / "_annotations.coco.json")
+    category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
+    validation_names = {cat["id"]: cat["name"] for cat in validation["categories"]}
+    if validation_names != category_names:
+        raise ValueError("Validation and test category IDs and names must match.")
+    validation_gt = _ground_truth(validation)
+    if not any(validation_gt.values()):
+        raise ValueError("Validation needs ground-truth annotations to calibrate thresholds.")
+    print(f"\nCalibrating thresholds on validation: {valid_dir}")
+    thresholds, calibration = select_thresholds(
+        _predict_dataset(model, valid_dir, validation), validation_gt,
+        validation_names, iou_threshold=IOU_THRESHOLD,
+    )
+    print(f"\nEvaluating test with fixed {calibration['selected_strategy']} thresholds: {test_dir}")
+    ground_truth = _ground_truth(coco)
+    raw_predictions = _predict_dataset(model, test_dir, coco)
+    for folder in ("TP", "FP", "FN", "misclassified"):
+        (output_dir / folder).mkdir(parents=True, exist_ok=True)
+    default_threshold = (
+        calibration["global_threshold"]
+        if calibration["selected_strategy"] == "global" else DEFAULT_THRESHOLD
     )
     filtered_predictions = {
         image_id: [
             (box, label, score) for box, label, score in predictions
-            if score >= thresholds.get(label, DEFAULT_THRESHOLD)
+            if score >= thresholds.get(label, default_threshold)
         ]
         for image_id, predictions in raw_predictions.items()
     }
@@ -96,6 +121,7 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path) -> dict:
                 raise OSError(f"No se pudo guardar el tile: {destination}")
 
     results = detection_metrics(all_predictions, ground_truth, IOU_THRESHOLD)
+    results["threshold_calibration"] = calibration
     results["per_class_thresholds"] = {
         category_names.get(label, str(label)): threshold
         for label, threshold in sorted(thresholds.items())

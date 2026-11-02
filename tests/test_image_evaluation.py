@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock
 
 import cv2
 import numpy as np
@@ -20,6 +20,7 @@ from src.test.image_evaluation import (
     reconstruct_predictions,
 )
 from src.test.metrics import binary_metrics, compute_map, detection_metrics
+from src.test.thresholds import find_optimal_thresholds, select_thresholds
 
 
 class ImageEvaluationTests(unittest.TestCase):
@@ -121,6 +122,8 @@ class ImageEvaluationTests(unittest.TestCase):
     def test_test_pipeline_uses_filtered_predictions_for_door_decisions(self):
         test_dir, output_dir = self.root / "test", self.root / "output"
         self.make_dataset(test_dir)
+        valid_dir = self.root / "valid"
+        self.make_dataset(valid_dir)
         predictions = {
             "door0_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
             "door1_tile1.png": [([4, 4, 12, 12], 0, 0.9)],
@@ -129,16 +132,32 @@ class ImageEvaluationTests(unittest.TestCase):
 
         def predict(path, threshold):
             self.assertEqual(threshold, 0.05)
-            preds = predictions.get(Path(path).name, [])
+            if Path(path).parent == valid_dir:
+                preds = {
+                    "door0_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
+                    "door1_tile1.png": [([4, 4, 12, 12], 0, 0.4)],
+                    "door2_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
+                }.get(Path(path).name, [])
+            else:
+                preds = predictions.get(Path(path).name, [])
             return SimpleNamespace(
                 xyxy=np.array([pred[0] for pred in preds], dtype=np.float32),
                 class_id=np.array([pred[1] for pred in preds]),
                 confidence=np.array([pred[2] for pred in preds], dtype=np.float32),
             )
 
-        with patch("src.test.__main__.find_optimal_thresholds", return_value={0: 0.5}):
-            with redirect_stdout(io.StringIO()):
-                result = evaluate_dataset(SimpleNamespace(predict=predict), test_dir, output_dir)
+        model = SimpleNamespace(predict=Mock(side_effect=predict))
+        with redirect_stdout(io.StringIO()):
+            result = evaluate_dataset(model, test_dir, output_dir)
+        calibration = result["threshold_calibration"]
+        self.assertEqual(calibration["split"], "valid")
+        self.assertEqual(calibration["selected_strategy"], "global")
+        self.assertEqual(calibration["global_f1"], 1.0)
+        self.assertEqual(calibration["global_threshold"], 0.45)
+        self.assertEqual(
+            [Path(call.args[0]).parent for call in model.predict.call_args_list],
+            [valid_dir] * 8 + [test_dir] * 8,
+        )
         self.assertEqual(result["Total TP"], 1)
         self.assertEqual(result["Total FP"], 1)
         self.assertEqual(result["Total FN"], 1)
@@ -151,11 +170,128 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertTrue((output_dir / "FN" / "door2_tile0.png").is_file())
         self.assertTrue((output_dir / "doors" / "TN" / "door3.png").is_file())
 
+    def test_test_pipeline_applies_selected_per_class_thresholds(self):
+        test_dir, output_dir = self.root / "test", self.root / "output"
+        for directory in (test_dir, self.root / "valid"):
+            coco = self.make_dataset(directory)
+            coco["annotations"][1]["category_id"] = 1
+            coco["source_images"][2]["annotations"][0]["category_id"] = 1
+            write_annotations(directory / "_annotations.coco.json", coco)
+
+        def predict(path, threshold):
+            preds = {
+                "door0_tile0.png": [([4, 4, 12, 12], 0, 0.2)],
+                "door2_tile0.png": [([4, 4, 12, 12], 1, 0.9)],
+                "door1_tile0.png": [([4, 4, 12, 12], 1, 0.2)],
+            }.get(Path(path).name, [])
+            return SimpleNamespace(
+                xyxy=np.array([pred[0] for pred in preds]),
+                class_id=np.array([pred[1] for pred in preds]),
+                confidence=np.array([pred[2] for pred in preds]),
+            )
+
+        with redirect_stdout(io.StringIO()):
+            result = evaluate_dataset(SimpleNamespace(predict=predict), test_dir, output_dir)
+        calibration = result["threshold_calibration"]
+        self.assertEqual(calibration["selected_strategy"], "per_class")
+        self.assertEqual(calibration["per_class_f1"], 1.0)
+        self.assertGreater(calibration["per_class_f1"], calibration["global_f1"])
+        self.assertEqual(result["per_class_thresholds"], {"defect": 0.05, "other": 0.25})
+        self.assertEqual(result["F1-Score"], 1.0)
+        self.assertEqual(result["image_metrics"]["Total TN"], 2)
+
+    def test_calibration_rejects_missing_empty_or_shared_validation(self):
+        test_dir, output_dir = self.root / "test", self.root / "output"
+        self.make_dataset(test_dir)
+        model = SimpleNamespace(predict=Mock())
+        with self.assertRaises(FileNotFoundError):
+            evaluate_dataset(model, test_dir, output_dir)
+        with self.assertRaisesRegex(ValueError, "separate"):
+            evaluate_dataset(model, test_dir, output_dir, valid_dir=test_dir)
+        valid_dir = self.root / "valid"
+        coco = self.make_dataset(valid_dir)
+        coco["annotations"] = []
+        write_annotations(valid_dir / "_annotations.coco.json", coco)
+        with self.assertRaisesRegex(ValueError, "ground-truth"):
+            evaluate_dataset(model, test_dir, output_dir)
+        coco["categories"][0]["name"] = "different"
+        write_annotations(valid_dir / "_annotations.coco.json", coco)
+        with self.assertRaisesRegex(ValueError, "category IDs"):
+            evaluate_dataset(model, test_dir, output_dir)
+        model.predict.assert_not_called()
+
     def test_map_counts_classes_with_no_predictions(self):
         ground_truth = {1: [([0, 0, 10, 10], 0), ([20, 20, 10, 10], 1)]}
         result = compute_map([(1, [0, 0, 10, 10], 0, 0.9)], ground_truth)
         self.assertAlmostEqual(result, 0.5)
         self.assertEqual(compute_map([], ground_truth), 0.0)
+
+    def test_threshold_matching_orders_predictions_by_confidence(self):
+        ground_truth = {1: [([0, 0, 10, 10], 0), ([8, 0, 10, 10], 0)]}
+        predictions = [([3, 0, 10, 10], 0, 0.2), ([0, 0, 10, 10], 0, 0.9)]
+        for ordered in (predictions, predictions[::-1]):
+            with self.subTest(predictions=ordered):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    thresholds = find_optimal_thresholds(
+                        {1: ordered}, ground_truth, {0: "defect"},
+                        iou_threshold=0.3, threshold_range=[0.1, 0.8],
+                    )
+                self.assertEqual(thresholds, {0: 0.1})
+                self.assertIn("TP=2 FP=0 FN=0", output.getvalue())
+
+    def test_threshold_search_warns_when_no_threshold_matches_ground_truth(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            find_optimal_thresholds(
+                {1: [([0, 0, 10, 10], 1, 0.9)]},
+                {1: [([0, 0, 10, 10], 0)]}, {0: "defect"},
+                threshold_range=[0.1, 0.8],
+            )
+        self.assertIn("class_id=0  TP=0 FP=0 FN=1", output.getvalue())
+        self.assertIn("not a calibrated optimum", output.getvalue())
+
+    def test_global_threshold_can_beat_individually_optimized_class_f1(self):
+        box = [0, 0, 10, 10]
+        ground_truth = {
+            1: [(box, 0), ([20, 0, 10, 10], 0)],
+            2: [([20 * idx, 0, 10, 10], 1) for idx in range(10)],
+        }
+        predictions = {
+            1: [
+                (box, 0, 0.9), ([20, 0, 10, 10], 0, 0.2),
+                *[([20 * idx, 0, 10, 10], 0, 0.2) for idx in range(2, 5)],
+            ],
+            2: [(box, 1, 0.9)],
+        }
+        with redirect_stdout(io.StringIO()):
+            thresholds, report = select_thresholds(
+                predictions, ground_truth, {0: "defect", 1: "other"},
+                threshold_range=[0.1, 0.8],
+            )
+        self.assertEqual(report["per_class_thresholds"]["defect"], 0.8)
+        self.assertGreater(report["global_f1"], report["per_class_f1"])
+        self.assertEqual(report["selected_strategy"], "global")
+        self.assertEqual(thresholds, {0: 0.1, 1: 0.1})
+        self.assertAlmostEqual(report["global_f1"], 1 / 3)
+
+    def test_strategy_comparison_counts_wrong_classes_and_negative_tiles(self):
+        box = [0, 0, 10, 10]
+        predictions = {
+            1: [(box, 1, 0.9)],
+            2: [(box, 0, 0.9), (box, 0, 0.8)],
+            3: [(box, 1, 0.9)],
+        }
+        with redirect_stdout(io.StringIO()):
+            thresholds, report = select_thresholds(
+                predictions, {1: [(box, 0)], 2: [(box, 0)], 3: []},
+                {0: "defect", 1: "other"}, threshold_range=[0.1],
+            )
+        # One TP, a duplicate FP, a wrong-class FP+FN, and a negative-tile FP.
+        self.assertAlmostEqual(report["global_f1"], 1 / 3)
+        self.assertEqual(report["per_class_f1"], report["global_f1"])
+        self.assertEqual(report["selected_strategy"], "global")
+        self.assertEqual(thresholds, {0: 0.1, 1: 0.1})
 
     def test_full_image_detection_metrics_match_original_boxes_not_duplicate_tiles(self):
         test_dir = self.root / "test"

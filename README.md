@@ -85,6 +85,8 @@ En test, `source_images` contiene copias completas de las puertas con el mismo `
 
 Ejemplo: `python -m src.test --weights trainings\training\checkpoint_best_total.pth`.
 
+Los umbrales se calibran exclusivamente con los tiles de `valid`, nunca con `test`. Se comparan los umbrales independientes por clase con un umbral global, barriendo de 0.05 a 0.95 en pasos de 0.05. Gana la estrategia con mayor F1 micro de deteccion (TP/FP/FN acumulados de todas las clases, IoU 0.3); en empate se usa el umbral global. El test por tile y por puerta aplica la estrategia ganadora sin reajustarla. `threshold_calibration` en `metrics.json` guarda ambos F1 de validacion, los candidatos ganadores y la estrategia seleccionada; `per_class_thresholds` contiene los umbrales finalmente aplicados. En la estrategia por clase, las clases sin anotaciones en validacion mantienen el umbral 0.5. Se requiere un split `valid` separado, con anotaciones y el mismo mapeo de categorias que `test`.
+
 Se mantienen las métricas y carpetas por tile. En `test_output\metrics.json`, `image_metrics` añade TP/FP/FN/TN, precisión, recall, F1, accuracy y especificidad por puerta; `image_detection_metrics` añade las métricas de detección, incluidos mAP/mAR, sobre las cajas reconstruidas en la imagen completa. Los duplicados de tiles solapados se suprimen mediante NMS por clase con IoU 0.5.
 
 Las imágenes completas anotadas, con GT y predicciones lado a lado, se guardan en `test_output\doors\TP`, `FP`, `FN` y `TN`. Esta clasificación es binaria: basta cualquier predicción que supere su umbral de confianza, sin exigir coincidencia de clase ni IoU con GT. Las métricas de detección sí evalúan clase y solapamiento; una clasificación incorrecta cuenta como FP y FN.
