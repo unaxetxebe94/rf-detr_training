@@ -248,11 +248,6 @@ Copy-Item "trainings\training\checkpoint_best_total.pth" "$timestamp.pth"
 if ($commit -eq "y" -or $commit -eq "") {
     Write-Host "Guardando estado en git..." -ForegroundColor Yellow
 
-    mkdir annotations -Force
-    Copy-Item "data\formatted\train\_annotations.coco.json" "annotations\train_annotations.json" -Force
-    Copy-Item "data\formatted\test\_annotations.coco.json" "annotations\test_annotations.json" -Force
-    Copy-Item "data\formatted\valid\_annotations.coco.json" "annotations\valid_annotations.json" -Force
-
     git add .
     git diff --cached --quiet
     if ($LASTEXITCODE -eq 0) {
