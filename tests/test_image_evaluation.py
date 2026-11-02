@@ -20,6 +20,7 @@ from src.test.image_evaluation import (
     reconstruct_predictions,
 )
 from src.test.metrics import binary_metrics, compute_map, detection_metrics
+from src.test.matching import match_predictions
 from src.test.thresholds import find_optimal_thresholds, select_thresholds
 
 
@@ -252,6 +253,16 @@ class ImageEvaluationTests(unittest.TestCase):
                     for argv, expected in (([], None), (["--global-threshold", "0.35"], 0.35)):
                         self.assertEqual(main(argv), 0)
                         self.assertEqual(evaluate.call_args.kwargs["global_threshold"], expected)
+                    weights = self.root / "weights.pth"
+                    snapshot = self.root / "training_categories.json"
+                    write_annotations(snapshot, {"categories": []})
+                    main(["--weights", str(weights)])
+                    self.assertEqual(evaluate.call_args.kwargs["train_annotations"], snapshot)
+                    original = self.root / "original.json"
+                    main([
+                        "--weights", str(weights), "--train-annotations", str(original),
+                    ])
+                    self.assertEqual(evaluate.call_args.kwargs["train_annotations"], original)
 
     def test_global_threshold_rejects_invalid_values_before_loading_model(self):
         for value in ("-0.1", "1.1", "nan", "inf", "invalid"):
@@ -454,6 +465,68 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(metrics["Total FP"], 1)
         self.assertEqual(metrics["Total FN"], 1)
         self.assertEqual(metrics["Recall"], 0.5)
+
+    def test_matching_prefers_valid_class_over_higher_iou_wrong_class(self):
+        boxes = [[0, 0, 10, 10], [2, 0, 10, 10]]
+        tp, fp, fn, mis = match_predictions(
+            boxes, [0, 1], [0.9, 0.8], boxes[::-1], [0, 1], 0.5,
+        )
+        self.assertEqual(tp, {0, 1})
+        self.assertEqual((fp, fn, mis), (set(), set(), set()))
+        gt = {1: [(boxes[1], 0), (boxes[0], 1)]}
+        preds = [(1, boxes[0], 0, 0.9), (1, boxes[1], 1, 0.8)]
+        metrics = detection_metrics(preds, gt, 0.5)
+        self.assertEqual(metrics["F1-Score"], 1.0)
+        self.assertEqual(metrics["mAR@50"], 1.0)
+        with redirect_stdout(io.StringIO()):
+            _, report = select_thresholds(
+                {1: [(boxes[0], 0, 0.9), (boxes[1], 1, 0.8)]},
+                gt, {0: "a", 1: "b"}, iou_threshold=0.5, threshold_range=[0.1],
+            )
+        self.assertEqual(report["global_f1"], 1.0)
+
+    def test_wrong_class_cannot_consume_gt_before_correct_lower_score_prediction(self):
+        box = [0, 0, 10, 10]
+        tp, fp, fn, mis = match_predictions(
+            [box, box], [1, 0], [0.99, 0.8], [box], [0],
+        )
+        self.assertEqual(tp, {1})
+        self.assertEqual(fp, {0})
+        self.assertEqual(fn, set())
+        self.assertEqual(mis, set())
+
+    def test_checkpoint_label_order_mismatch_requires_original_training_mapping(self):
+        test_dir = self.root / "test"
+        self.make_dataset(test_dir)
+        model = SimpleNamespace(
+            model=SimpleNamespace(class_names=["other", "defect"]), predict=Mock(),
+            # RF-DETR's public class_names property may use a different index base.
+            class_names={1: "other", 2: "defect"},
+        )
+        with self.assertRaisesRegex(ValueError, "Checkpoint classes/order"):
+            evaluate_dataset(model, test_dir, self.root / "output", global_threshold=0.5)
+        model.predict.assert_not_called()
+        original_training = self.root / "original_training.json"
+        write_annotations(original_training, {
+            "categories": [{"id": 0, "name": "other"}, {"id": 1, "name": "defect"}],
+        })
+
+        def predict(path, threshold):
+            positive = Path(path).name in ("door0_tile0.png", "door2_tile0.png")
+            return SimpleNamespace(
+                xyxy=np.array([[4, 4, 12, 12]]) if positive else [],
+                class_id=[1] if positive else [], confidence=[0.9] if positive else [],
+            )
+
+        model.predict.side_effect = predict
+        with redirect_stdout(io.StringIO()):
+            result = evaluate_dataset(
+                model, test_dir, self.root / "output", global_threshold=0.5,
+                train_annotations=original_training,
+            )
+        self.assertEqual(result["category_id_to_name"], {"0": "other", "1": "defect"})
+        self.assertEqual(result["F1-Score"], 1.0)
+        self.assertEqual(result["image_detection_metrics"]["F1-Score"], 1.0)
 
     def test_binary_metrics_handle_no_positive_doors(self):
         metrics = binary_metrics({"TP": 0, "FP": 0, "FN": 0, "TN": 4})

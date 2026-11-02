@@ -15,13 +15,12 @@ def match_predictions(pred_boxes, pred_labels, pred_scores,
     tp_pred, fp_pred, mis_pred = set(), set(), set()
     fn_gt = set(range(len(gt_boxes)))
 
-    # Sort predictions by descending confidence
-    order = np.argsort(pred_scores)[::-1]
+    order = np.argsort(-np.asarray(pred_scores), kind="stable")
 
     for pi in order:
         best_iou, best_gi = 0.0, -1
         for gi, gt_box in enumerate(gt_boxes):
-            if gi in matched_gt:
+            if gi in matched_gt or pred_labels[pi] != gt_labels[gi]:
                 continue
             iou = compute_iou(pred_boxes[pi], gt_box)
             if iou > best_iou:
@@ -30,11 +29,24 @@ def match_predictions(pred_boxes, pred_labels, pred_scores,
         if best_iou >= iou_threshold and best_gi != -1:
             matched_gt.add(best_gi)
             fn_gt.discard(best_gi)
-            if pred_labels[pi] == gt_labels[best_gi]:
-                tp_pred.add(pi)
-            else:
-                mis_pred.add(pi)          # geometrically matched, wrong class
+            tp_pred.add(pi)
         else:
             fp_pred.add(pi)
+
+    # Diagnose wrong-class overlaps only after preserving all same-class matches.
+    for pi in order:
+        if pi not in fp_pred:
+            continue
+        best_iou, best_gi = 0.0, -1
+        for gi in sorted(fn_gt):
+            if pred_labels[pi] == gt_labels[gi]:
+                continue
+            iou = compute_iou(pred_boxes[pi], gt_boxes[gi])
+            if iou > best_iou:
+                best_iou, best_gi = iou, gi
+        if best_gi != -1 and best_iou >= iou_threshold:
+            fp_pred.remove(pi)
+            mis_pred.add(pi)
+            fn_gt.remove(best_gi)
 
     return tp_pred, fp_pred, fn_gt, mis_pred

@@ -1,4 +1,5 @@
 import os
+import json
 from rfdetr import RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
 import yaml
 import logging
@@ -59,9 +60,12 @@ if __name__ == "__main__":
         seed=params["seed"]
     )
     logger.info("Se ha entrenado el modelo")
+    with open(dataset_dir / "train" / "_annotations.coco.json", encoding="utf-8") as f:
+        categories = json.load(f)["categories"]
+    with open(output_dir / "training_categories.json", "w", encoding="utf-8") as f:
+        json.dump({"categories": categories}, f, ensure_ascii=False, indent=2)
 
     # Guardamos el nombre del run para el test
-    import json
     run_name_path = Path(output_dir.parent, "temp", "run_info.json")
     os.makedirs(run_name_path.parent, exist_ok=True)
     with open(run_name_path, "w") as f:

@@ -90,13 +90,29 @@ def _predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
 
 def evaluate_dataset(model, test_dir: Path, output_dir: Path,
                      valid_dir: Path | None = None,
-                     global_threshold: float | None = None) -> dict:
+                     global_threshold: float | None = None,
+                     train_annotations: Path | None = None) -> dict:
     if global_threshold is not None and not 0 <= global_threshold <= 1:
         raise ValueError("Global threshold must be between 0 and 1.")
     test_dir, output_dir = Path(test_dir), Path(output_dir)
     coco = read_annotations(test_dir / "_annotations.coco.json")
     reconstruct_predictions(coco, {})
-    training = read_annotations(test_dir.parent / "train" / "_annotations.coco.json")
+    training = read_annotations(
+        Path(train_annotations) if train_annotations is not None
+        else test_dir.parent / "train" / "_annotations.coco.json"
+    )
+    checkpoint_names = getattr(getattr(model, "model", None), "class_names", None)
+    if isinstance(checkpoint_names, (list, tuple)) and checkpoint_names:
+        training_names = [
+            cat["name"] for cat in training["categories"]
+            if cat.get("supercategory") != "none"
+        ]
+        if list(checkpoint_names) != training_names:
+            raise ValueError(
+                "Checkpoint classes/order do not match training annotations. "
+                "Use --train-annotations with the original training COCO JSON. "
+                f"Checkpoint: {list(checkpoint_names)}; dataset: {training_names}"
+            )
     coco = _align_categories(coco, training["categories"])
     category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
     if global_threshold is None:
@@ -172,6 +188,9 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
                 raise OSError(f"No se pudo guardar el tile: {destination}")
 
     results = detection_metrics(all_predictions, ground_truth, IOU_THRESHOLD)
+    results["category_id_to_name"] = {
+        str(label): name for label, name in category_names.items()
+    }
     results["threshold_calibration"] = calibration
     results["per_class_thresholds"] = {
         category_names.get(label, str(label)): threshold
@@ -200,6 +219,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluacion por tile y por puerta.")
     parser.add_argument("--weights", type=Path, default=PRETRAIN_WEIGHTS)
     parser.add_argument(
+        "--train-annotations", type=Path,
+        help="Original training COCO JSON defining the checkpoint's class IDs.",
+    )
+    parser.add_argument(
         "--global-threshold", type=_confidence_threshold, default=None,
         help="Use this confidence threshold for all classes, skipping validation calibration.",
     )
@@ -212,9 +235,14 @@ def main(argv: list[str] | None = None) -> int:
         "medium": RFDETRMedium, "large": RFDETRLarge,
     }
     model = models[cfg.model_type](pretrain_weights=str(args.weights))
+    train_annotations = args.train_annotations
+    snapshot = args.weights.parent / "training_categories.json"
+    if train_annotations is None and snapshot.is_file():
+        train_annotations = snapshot
     evaluate_dataset(
         model, cfg.final_data / "test", cfg.final_data / "test_output",
         global_threshold=args.global_threshold,
+        train_annotations=train_annotations,
     )
     return 0
 
