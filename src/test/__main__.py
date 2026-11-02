@@ -69,14 +69,14 @@ def _ground_truth(coco):
     }
 
 
-def _predict_dataset(model, directory, coco):
+def _predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
     allowed_labels = {cat["id"] for cat in coco["categories"]}
     raw_predictions = {}
     for image in coco["images"]:
         image_path = directory / image["file_name"]
         if not image_path.is_file():
             raise FileNotFoundError(image_path)
-        prediction = model.predict(str(image_path), threshold=RAW_THRESHOLD)
+        prediction = model.predict(str(image_path), threshold=raw_threshold)
         raw_predictions[image["id"]] = [
             (xyxy_to_xywh(box), int(label), float(score))
             for box, label, score in zip(
@@ -89,30 +89,45 @@ def _predict_dataset(model, directory, coco):
 
 
 def evaluate_dataset(model, test_dir: Path, output_dir: Path,
-                     valid_dir: Path | None = None) -> dict:
+                     valid_dir: Path | None = None,
+                     global_threshold: float | None = None) -> dict:
+    if global_threshold is not None and not 0 <= global_threshold <= 1:
+        raise ValueError("Global threshold must be between 0 and 1.")
     test_dir, output_dir = Path(test_dir), Path(output_dir)
-    valid_dir = Path(valid_dir) if valid_dir is not None else test_dir.parent / "valid"
-    if valid_dir.resolve() == test_dir.resolve():
-        raise ValueError("Validation and test must use separate directories.")
     coco = read_annotations(test_dir / "_annotations.coco.json")
     reconstruct_predictions(coco, {})
-    validation = read_annotations(valid_dir / "_annotations.coco.json")
     training = read_annotations(test_dir.parent / "train" / "_annotations.coco.json")
     coco = _align_categories(coco, training["categories"])
-    validation = _align_categories(validation, training["categories"])
     category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
-    validation_names = {cat["id"]: cat["name"] for cat in validation["categories"]}
-    validation_gt = _ground_truth(validation)
-    if not any(validation_gt.values()):
-        raise ValueError("Validation needs ground-truth annotations to calibrate thresholds.")
-    print(f"\nCalibrating thresholds on validation: {valid_dir}")
-    thresholds, calibration = select_thresholds(
-        _predict_dataset(model, valid_dir, validation), validation_gt,
-        validation_names, iou_threshold=IOU_THRESHOLD,
-    )
+    if global_threshold is None:
+        valid_dir = Path(valid_dir) if valid_dir is not None else test_dir.parent / "valid"
+        if valid_dir.resolve() == test_dir.resolve():
+            raise ValueError("Validation and test must use separate directories.")
+        validation = read_annotations(valid_dir / "_annotations.coco.json")
+        validation = _align_categories(validation, training["categories"])
+        validation_names = {cat["id"]: cat["name"] for cat in validation["categories"]}
+        validation_gt = _ground_truth(validation)
+        if not any(validation_gt.values()):
+            raise ValueError("Validation needs ground-truth annotations to calibrate thresholds.")
+        print(f"\nCalibrating thresholds on validation: {valid_dir}")
+        thresholds, calibration = select_thresholds(
+            _predict_dataset(model, valid_dir, validation), validation_gt,
+            validation_names, iou_threshold=IOU_THRESHOLD,
+        )
+    else:
+        thresholds = dict.fromkeys(category_names, global_threshold)
+        calibration = {
+            "split": None,
+            "source": "manual",
+            "global_threshold": global_threshold,
+            "selected_strategy": "global",
+        }
     print(f"\nEvaluating test with fixed {calibration['selected_strategy']} thresholds: {test_dir}")
     ground_truth = _ground_truth(coco)
-    raw_predictions = _predict_dataset(model, test_dir, coco)
+    raw_predictions = _predict_dataset(
+        model, test_dir, coco,
+        raw_threshold=0.0 if global_threshold is not None else RAW_THRESHOLD,
+    )
     for folder in ("TP", "FP", "FN", "misclassified"):
         (output_dir / folder).mkdir(parents=True, exist_ok=True)
     default_threshold = (
@@ -171,9 +186,23 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
     return results
 
 
+def _confidence_threshold(value):
+    try:
+        threshold = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Threshold must be a float between 0 and 1.")
+    if not 0 <= threshold <= 1:
+        raise argparse.ArgumentTypeError("Threshold must be between 0 and 1.")
+    return threshold
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluacion por tile y por puerta.")
     parser.add_argument("--weights", type=Path, default=PRETRAIN_WEIGHTS)
+    parser.add_argument(
+        "--global-threshold", type=_confidence_threshold, default=None,
+        help="Use this confidence threshold for all classes, skipping validation calibration.",
+    )
     args = parser.parse_args(argv)
     cfg = get_global_config()
     from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRSmall, RFDETRNano
@@ -183,7 +212,10 @@ def main(argv: list[str] | None = None) -> int:
         "medium": RFDETRMedium, "large": RFDETRLarge,
     }
     model = models[cfg.model_type](pretrain_weights=str(args.weights))
-    evaluate_dataset(model, cfg.final_data / "test", cfg.final_data / "test_output")
+    evaluate_dataset(
+        model, cfg.final_data / "test", cfg.final_data / "test_output",
+        global_threshold=args.global_threshold,
+    )
     return 0
 
 

@@ -85,6 +85,8 @@ En test, `source_images` contiene copias completas de las puertas con el mismo `
 
 Ejemplo: `python -m src.test --weights trainings\training\checkpoint_best_total.pth`.
 
+Para evaluar directamente con un umbral fijo para todas las clases: `python -m src.test --global-threshold 0.35`. Acepta valores entre 0 y 1, no lee `valid` ni busca umbrales optimos, y aplica el valor tanto a tiles como a puertas. Sin este argumento se mantiene la calibracion automatica descrita a continuacion.
+
 Los umbrales se calibran exclusivamente con los tiles de `valid`, nunca con `test`. Se comparan los umbrales independientes por clase con un umbral global, barriendo de 0.05 a 0.95 en pasos de 0.05. Gana la estrategia con mayor F1 micro de deteccion (TP/FP/FN acumulados de todas las clases, IoU 0.3); en empate se usa el umbral global. El test por tile y por puerta aplica la estrategia ganadora sin reajustarla. `threshold_calibration` en `metrics.json` guarda ambos F1 de validacion, los candidatos ganadores y la estrategia seleccionada; `per_class_thresholds` contiene los umbrales finalmente aplicados. En la estrategia por clase, las clases sin anotaciones en validacion mantienen el umbral 0.5. Se requiere un split `valid` separado, con anotaciones.
 
 Antes de calibrar o evaluar, las categorias de `valid` y `test` se alinean por nombre exacto con `train\_annotations.coco.json`, usando los IDs del entrenamiento. Se eliminan las anotaciones de clases ausentes en train, tanto de tiles como de `source_images`, y se recalcula `has_defects` por puerta. Las predicciones con IDs ajenos al entrenamiento se descartan. La alineacion se hace en memoria, sin modificar los JSON; el dataset de train debe corresponder al checkpoint evaluado.

@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -13,7 +13,7 @@ from PIL import Image
 
 from src.fuse_datasets import DatasetFuser
 from src.preprocess.annotations import read_annotations, write_annotations
-from src.test.__main__ import _align_categories, evaluate_dataset
+from src.test.__main__ import _align_categories, evaluate_dataset, main
 from src.test.image_evaluation import (
     door_bucket,
     evaluate_images,
@@ -202,6 +202,70 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(result["per_class_thresholds"], {"defect": 0.05, "other": 0.25})
         self.assertEqual(result["F1-Score"], 1.0)
         self.assertEqual(result["image_metrics"]["Total TN"], 2)
+
+    def test_manual_global_threshold_skips_validation_and_filters_all_classes(self):
+        test_dir = self.root / "test"
+        coco = self.make_dataset(test_dir)
+        coco["annotations"][1]["category_id"] = 1
+        coco["source_images"][2]["annotations"][0]["category_id"] = 1
+        write_annotations(test_dir / "_annotations.coco.json", coco)
+        for threshold in (0.0, 0.02, 0.7, 1.0):
+            with self.subTest(threshold=threshold):
+                def predict(path, threshold):
+                    self.assertEqual(threshold, 0.0)
+                    self.assertEqual(Path(path).parent, test_dir)
+                    return SimpleNamespace(
+                        xyxy=np.array([[4, 4, 12, 12]]),
+                        class_id=np.array([
+                            1 if Path(path).name == "door2_tile0.png" else 0
+                        ]),
+                        confidence=np.array([0.02]),
+                    )
+
+                with patch("src.test.__main__.select_thresholds") as select:
+                    with redirect_stdout(io.StringIO()):
+                        result = evaluate_dataset(
+                            SimpleNamespace(predict=predict), test_dir,
+                            self.root / f"output_{threshold}", global_threshold=threshold,
+                        )
+                select.assert_not_called()
+                self.assertEqual(
+                    result["per_class_thresholds"], {"defect": threshold, "other": threshold}
+                )
+                self.assertEqual(result["threshold_calibration"]["source"], "manual")
+                self.assertIsNone(result["threshold_calibration"]["split"])
+                self.assertEqual(result["Total TP"], 2 if threshold <= 0.02 else 0)
+                self.assertEqual(
+                    result["image_metrics"]["Total TP"], 2 if threshold <= 0.02 else 0
+                )
+
+    def test_global_threshold_cli_forwards_value_and_preserves_default(self):
+        model_class = Mock()
+        rfdetr = SimpleNamespace(**{
+            name: model_class for name in
+            ("RFDETRLarge", "RFDETRMedium", "RFDETRSmall", "RFDETRNano")
+        })
+        config = SimpleNamespace(model_type="large", final_data=self.root)
+        with patch.dict("sys.modules", {"rfdetr": rfdetr}):
+            with patch("src.test.__main__.get_global_config", return_value=config):
+                with patch("src.test.__main__.evaluate_dataset") as evaluate:
+                    for argv, expected in (([], None), (["--global-threshold", "0.35"], 0.35)):
+                        self.assertEqual(main(argv), 0)
+                        self.assertEqual(evaluate.call_args.kwargs["global_threshold"], expected)
+
+    def test_global_threshold_rejects_invalid_values_before_loading_model(self):
+        for value in ("-0.1", "1.1", "nan", "inf", "invalid"):
+            with self.subTest(value=value):
+                with redirect_stdout(io.StringIO()), patch("sys.stderr", new=io.StringIO()):
+                    with self.assertRaises(SystemExit) as error:
+                        main(["--global-threshold", value])
+                self.assertEqual(error.exception.code, 2)
+        for threshold in (-0.1, 1.1, float("nan")):
+            with self.assertRaisesRegex(ValueError, "between 0 and 1"):
+                evaluate_dataset(
+                    Mock(), self.root / "test", self.root / "output",
+                    global_threshold=threshold,
+                )
 
     def test_calibration_rejects_missing_empty_or_shared_validation(self):
         test_dir, output_dir = self.root / "test", self.root / "output"
