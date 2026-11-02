@@ -25,6 +25,39 @@ DEFAULT_THRESHOLD = 0.5
 PRETRAIN_WEIGHTS = Path("trainings") / "training" / "checkpoint_best_total.pth"
 
 
+def _align_categories(coco, training_categories):
+    training_ids = {cat["name"]: cat["id"] for cat in training_categories}
+    if len(training_ids) != len(training_categories):
+        raise ValueError("Training category names must be unique for alignment.")
+    mapping = {
+        cat["id"]: training_ids[cat["name"]]
+        for cat in coco["categories"] if cat["name"] in training_ids
+    }
+
+    def align_annotations(annotations):
+        return [
+            {**ann, "category_id": mapping[ann["category_id"]]}
+            for ann in annotations if ann["category_id"] in mapping
+        ]
+
+    aligned = {
+        **coco,
+        "categories": training_categories,
+        "annotations": align_annotations(coco["annotations"]),
+    }
+    if "source_images" in coco:
+        aligned["source_images"] = []
+        for source in coco["source_images"]:
+            annotations = align_annotations(source["annotations"])
+            aligned["source_images"].append({
+                **source, "annotations": annotations,
+                "has_defects": bool(annotations),
+            })
+    removed = [cat["name"] for cat in coco["categories"] if cat["id"] not in mapping]
+    print(f"Category alignment to training IDs: {mapping}; removed classes: {removed}")
+    return aligned
+
+
 def _ground_truth(coco):
     annotations = group_annotations_by_image(coco)
     return {
@@ -37,6 +70,7 @@ def _ground_truth(coco):
 
 
 def _predict_dataset(model, directory, coco):
+    allowed_labels = {cat["id"] for cat in coco["categories"]}
     raw_predictions = {}
     for image in coco["images"]:
         image_path = directory / image["file_name"]
@@ -48,6 +82,7 @@ def _predict_dataset(model, directory, coco):
             for box, label, score in zip(
                 prediction.xyxy, prediction.class_id, prediction.confidence
             )
+            if int(label) in allowed_labels
         ]
         print(f"{image['file_name']}: {len(raw_predictions[image['id']])} detecciones.")
     return raw_predictions
@@ -62,10 +97,11 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
     coco = read_annotations(test_dir / "_annotations.coco.json")
     reconstruct_predictions(coco, {})
     validation = read_annotations(valid_dir / "_annotations.coco.json")
+    training = read_annotations(test_dir.parent / "train" / "_annotations.coco.json")
+    coco = _align_categories(coco, training["categories"])
+    validation = _align_categories(validation, training["categories"])
     category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
     validation_names = {cat["id"]: cat["name"] for cat in validation["categories"]}
-    if validation_names != category_names:
-        raise ValueError("Validation and test category IDs and names must match.")
     validation_gt = _ground_truth(validation)
     if not any(validation_gt.values()):
         raise ValueError("Validation needs ground-truth annotations to calibrate thresholds.")

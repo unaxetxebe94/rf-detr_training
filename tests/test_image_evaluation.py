@@ -13,7 +13,7 @@ from PIL import Image
 
 from src.fuse_datasets import DatasetFuser
 from src.preprocess.annotations import read_annotations, write_annotations
-from src.test.__main__ import evaluate_dataset
+from src.test.__main__ import _align_categories, evaluate_dataset
 from src.test.image_evaluation import (
     door_bucket,
     evaluate_images,
@@ -28,6 +28,9 @@ class ImageEvaluationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        write_annotations(self.root / "train" / "_annotations.coco.json", {
+            "categories": [{"id": 0, "name": "defect"}, {"id": 1, "name": "other"}],
+        })
 
     def make_dataset(self, directory):
         coco = {
@@ -214,11 +217,75 @@ class ImageEvaluationTests(unittest.TestCase):
         write_annotations(valid_dir / "_annotations.coco.json", coco)
         with self.assertRaisesRegex(ValueError, "ground-truth"):
             evaluate_dataset(model, test_dir, output_dir)
-        coco["categories"][0]["name"] = "different"
-        write_annotations(valid_dir / "_annotations.coco.json", coco)
-        with self.assertRaisesRegex(ValueError, "category IDs"):
-            evaluate_dataset(model, test_dir, output_dir)
         model.predict.assert_not_called()
+
+    def test_alignment_remaps_tiles_and_sources_without_changing_input(self):
+        coco = self.make_dataset(self.root / "test")
+        coco["categories"] = [
+            {"id": 0, "name": "untrained"}, {"id": 7, "name": "defect"},
+        ]
+        coco["annotations"][0]["category_id"] = 7
+        coco["source_images"][0]["annotations"][0]["category_id"] = 7
+        original = copy.deepcopy(coco)
+        training = [{"id": 3, "name": "defect"}, {"id": 9, "name": "other"}]
+        with redirect_stdout(io.StringIO()):
+            aligned = _align_categories(coco, training)
+        self.assertEqual(aligned["categories"], training)
+        self.assertEqual([ann["category_id"] for ann in aligned["annotations"]], [3])
+        self.assertEqual(
+            aligned["source_images"][0]["annotations"][0]["category_id"], 3
+        )
+        self.assertTrue(aligned["source_images"][0]["has_defects"])
+        self.assertEqual(aligned["source_images"][2]["annotations"], [])
+        self.assertFalse(aligned["source_images"][2]["has_defects"])
+        self.assertEqual(coco, original)
+
+    def test_pipeline_aligns_each_split_by_name_to_training_ids(self):
+        training = [{"id": 3, "name": "defect"}, {"id": 9, "name": "other"}]
+        write_annotations(
+            self.root / "train" / "_annotations.coco.json", {"categories": training}
+        )
+        for split, defect_id in (("valid", 7), ("test", 11)):
+            directory = self.root / split
+            coco = self.make_dataset(directory)
+            coco["categories"] = [
+                {"id": defect_id, "name": "defect"}, {"id": 3, "name": "untrained"},
+            ]
+            for ann in coco["annotations"]:
+                ann["category_id"] = defect_id
+            for source in coco["source_images"]:
+                for ann in source["annotations"]:
+                    ann["category_id"] = defect_id
+            coco["annotations"].append({
+                "id": 99, "image_id": 3, "category_id": 3, "bbox": [4, 4, 8, 8],
+            })
+            coco["source_images"][1]["annotations"] = [
+                {"category_id": 3, "bbox": [4, 4, 8, 8]},
+            ]
+            coco["source_images"][1]["has_defects"] = True
+            write_annotations(directory / "_annotations.coco.json", coco)
+
+        def predict(path, threshold):
+            positive = Path(path).name in ("door0_tile0.png", "door2_tile0.png")
+            return SimpleNamespace(
+                xyxy=np.array([[4, 4, 12, 12]]),
+                class_id=np.array([3 if positive else 99]),
+                confidence=np.array([0.9]),
+            )
+
+        with redirect_stdout(io.StringIO()):
+            result = evaluate_dataset(
+                SimpleNamespace(predict=predict), self.root / "test", self.root / "output"
+            )
+        self.assertEqual(result["threshold_calibration"]["global_f1"], 1.0)
+        self.assertEqual(result["F1-Score"], 1.0)
+        self.assertEqual(result["image_detection_metrics"]["F1-Score"], 1.0)
+        self.assertEqual(result["image_metrics"]["Total TP"], 2)
+        self.assertEqual(result["image_metrics"]["Total TN"], 2)
+        self.assertEqual(
+            read_annotations(self.root / "test" / "_annotations.coco.json")["categories"],
+            [{"id": 11, "name": "defect"}, {"id": 3, "name": "untrained"}],
+        )
 
     def test_map_counts_classes_with_no_predictions(self):
         ground_truth = {1: [([0, 0, 10, 10], 0), ([20, 20, 10, 10], 1)]}
