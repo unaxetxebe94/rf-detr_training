@@ -144,11 +144,11 @@ def _predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
             raise FileNotFoundError(image_path)
         prediction = model.predict(str(image_path), threshold=raw_threshold)
         raw_predictions[image["id"]] = [
-            (xyxy_to_xywh(box), int(label), float(score))
+            (xyxy_to_xywh(box), int(label) + 1, float(score))
             for box, label, score in zip(
                 prediction.xyxy, prediction.class_id, prediction.confidence
             )
-            if int(label) in allowed_labels
+            if int(label) + 1 in allowed_labels
         ]
         print(f"{image['file_name']}: {len(raw_predictions[image['id']])} detecciones.")
     return raw_predictions

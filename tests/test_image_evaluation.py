@@ -136,18 +136,18 @@ class ImageEvaluationTests(unittest.TestCase):
         valid_dir = self.root / "valid"
         self.make_dataset(valid_dir)
         predictions = {
-            "door0_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
-            "door1_tile1.png": [([4, 4, 12, 12], 0, 0.9)],
-            "door2_tile0.png": [([4, 4, 12, 12], 0, 0.1)],
+            "door0_tile0.png": [([4, 4, 12, 12], -1, 0.9)],
+            "door1_tile1.png": [([4, 4, 12, 12], -1, 0.9)],
+            "door2_tile0.png": [([4, 4, 12, 12], -1, 0.1)],
         }
 
         def predict(path, threshold):
             self.assertEqual(threshold, 0.05)
             if Path(path).parent == valid_dir:
                 preds = {
-                    "door0_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
-                    "door1_tile1.png": [([4, 4, 12, 12], 0, 0.4)],
-                    "door2_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
+                    "door0_tile0.png": [([4, 4, 12, 12], -1, 0.9)],
+                    "door1_tile1.png": [([4, 4, 12, 12], -1, 0.4)],
+                    "door2_tile0.png": [([4, 4, 12, 12], -1, 0.9)],
                 }.get(Path(path).name, [])
             else:
                 preds = predictions.get(Path(path).name, [])
@@ -191,9 +191,9 @@ class ImageEvaluationTests(unittest.TestCase):
 
         def predict(path, threshold):
             preds = {
-                "door0_tile0.png": [([4, 4, 12, 12], 0, 0.2)],
-                "door2_tile0.png": [([4, 4, 12, 12], 1, 0.9)],
-                "door1_tile0.png": [([4, 4, 12, 12], 1, 0.2)],
+                "door0_tile0.png": [([4, 4, 12, 12], -1, 0.2)],
+                "door2_tile0.png": [([4, 4, 12, 12], 0, 0.9)],
+                "door1_tile0.png": [([4, 4, 12, 12], 0, 0.2)],
             }.get(Path(path).name, [])
             return SimpleNamespace(
                 xyxy=np.array([pred[0] for pred in preds]),
@@ -225,7 +225,7 @@ class ImageEvaluationTests(unittest.TestCase):
                     return SimpleNamespace(
                         xyxy=np.array([[4, 4, 12, 12]]),
                         class_id=np.array([
-                            1 if Path(path).name == "door2_tile0.png" else 0
+                            0 if Path(path).name == "door2_tile0.png" else -1
                         ]),
                         confidence=np.array([0.02]),
                     )
@@ -358,7 +358,7 @@ class ImageEvaluationTests(unittest.TestCase):
             positive = Path(path).name in ("door0_tile0.png", "door2_tile0.png")
             return SimpleNamespace(
                 xyxy=np.array([[4, 4, 12, 12]]),
-                class_id=np.array([3 if positive else 99]),
+                class_id=np.array([2 if positive else 99]),
                 confidence=np.array([0.9]),
             )
 
@@ -457,7 +457,7 @@ class ImageEvaluationTests(unittest.TestCase):
             positive = Path(path).name in ("door0_tile0.png", "door2_tile0.png")
             return SimpleNamespace(
                 xyxy=[[4, 4, 12, 12]] if positive else [],
-                class_id=[3] if positive else [], confidence=[0.9] if positive else [],
+                class_id=[2] if positive else [], confidence=[0.9] if positive else [],
             )
 
         with redirect_stdout(io.StringIO()):
@@ -668,7 +668,7 @@ class ImageEvaluationTests(unittest.TestCase):
             positive = Path(path).name in ("door0_tile0.png", "door2_tile0.png")
             return SimpleNamespace(
                 xyxy=np.array([[4, 4, 12, 12]]) if positive else [],
-                class_id=[1] if positive else [], confidence=[0.9] if positive else [],
+                class_id=[0] if positive else [], confidence=[0.9] if positive else [],
             )
 
         model.predict.side_effect = predict
