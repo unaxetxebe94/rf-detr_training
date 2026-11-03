@@ -428,7 +428,10 @@ class ImageEvaluationTests(unittest.TestCase):
         raw = {
             "categories": [{"id": 7, "name": "defect"}],
             "images": [
-                {"id": index, "file_name": source["original_file_name"]}
+                {
+                    "id": index, "file_name": source["original_file_name"],
+                    "width": 192, "height": 96,
+                }
                 for index, source in enumerate(coco["source_images"])
             ],
             "annotations": [],
@@ -437,7 +440,8 @@ class ImageEvaluationTests(unittest.TestCase):
             for ann in source["annotations"]:
                 ann.update(id=index, category_id=7)
                 raw["annotations"].append({
-                    **ann, "image_id": index, "bbox": [12, 12, 24, 24],
+                    **ann, "id": index + 100, "image_id": index,
+                    "bbox": [12, 12, 24, 24],
                 })
         write_annotations(directories[0] / "_annotations.coco.json", raw)
         write_annotations(directories[1] / "_annotations.coco.json", {
@@ -469,8 +473,47 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(result["image_metrics"]["Total TN"], 2)
         self.assertEqual([path.read_bytes() for path in paths], disk_contents)
         del coco["source_images"][0]["annotations"][0]["id"]
-        with self.assertRaisesRegex(ValueError, "Original annotation"):
+        aligned = _align_door_categories(coco, directories)
+        self.assertEqual(aligned["source_images"][0]["annotations"][0]["category_id"], 0)
+        coco["source_images"][0]["annotations"][0]["bbox"] = [50, 20, 8, 8]
+        with self.assertRaisesRegex(ValueError, "Cannot uniquely align annotation"):
             _align_door_categories(coco, directories)
+
+    def test_door_alignment_handles_renumbered_annotations_without_guessing_category_ids(self):
+        coco = self.make_dataset(self.root / "test")
+        directory = self.root / "raw"
+        source = coco["source_images"][0]
+        coco["source_images"] = [source]
+        source["annotations"] = [{
+            "id": 828786, "category_id": 1, "bbox": [4, 4, 8, 8],
+        }]
+        original = {
+            "categories": [{"id": 7, "name": "defect"}, {"id": 1, "name": "other"}],
+            "images": [{
+                "id": 50, "file_name": source["original_file_name"],
+                "width": 192, "height": 96,
+            }],
+            "annotations": [{
+                "id": 10, "image_id": 50, "category_id": 7,
+                "bbox": [12.5, 12, 24, 24],
+            }],
+        }
+        path = directory / "_annotations.coco.json"
+        write_annotations(path, original)
+        before = copy.deepcopy(coco)
+        aligned = _align_door_categories(coco, (directory,))
+        self.assertEqual(aligned["source_images"][0]["annotations"], [{
+            "id": 828786, "category_id": 0, "bbox": [4, 4, 8, 8],
+        }])
+        self.assertEqual(coco, before)
+        self.assertEqual(read_annotations(path), original)
+        original["annotations"].append({
+            "id": 11, "image_id": 50, "category_id": 1,
+            "bbox": [12, 12, 24, 24],
+        })
+        write_annotations(path, original)
+        with self.assertRaisesRegex(ValueError, "Cannot uniquely align annotation"):
+            _align_door_categories(coco, (directory,))
 
     def test_map_counts_classes_with_no_predictions(self):
         ground_truth = {1: [([0, 0, 10, 10], 0), ([20, 20, 10, 10], 1)]}

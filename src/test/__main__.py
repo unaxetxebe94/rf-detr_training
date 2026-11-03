@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from math import isclose
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -39,7 +40,7 @@ def _align_door_categories(coco, original_data_dirs):
             source_id = uuid5(
                 NAMESPACE_URL, str((directory / image["file_name"]).resolve())
             ).hex
-            entry = (categories, {
+            entry = (categories, image, {
                 ann["id"]: ann for ann in annotations.get(image["id"], [])
             })
             originals_by_source[source_id] = entry
@@ -55,16 +56,33 @@ def _align_door_categories(coco, original_data_dirs):
                     f"Cannot identify original dataset for door {source['original_file_name']}."
                 )
             entry = candidates[0]
-        categories, original_annotations = entry
+        categories, original_image, original_annotations = entry
         annotations = []
         for ann in source["annotations"]:
             original_ann = original_annotations.get(ann.get("id"))
             if original_ann is None:
-                raise ValueError(
-                    f"Original annotation {ann.get('id')} not found for "
-                    f"door {source['original_file_name']}."
-                )
-            name = categories[original_ann["category_id"]]
+                names = set()
+                if original_image.get("width") and original_image.get("height"):
+                    scale_x = source["width"] / original_image["width"]
+                    scale_y = source["height"] / original_image["height"]
+                    # Resize rounding can shift the scaled box by up to one pixel.
+                    for candidate in original_annotations.values():
+                        box = candidate.get("bbox")
+                        if box is not None and all(
+                            isclose(value, original_value * scale, abs_tol=1.0)
+                            for value, original_value, scale in zip(
+                                ann["bbox"], box, (scale_x, scale_y, scale_x, scale_y)
+                            )
+                        ):
+                            names.add(categories[candidate["category_id"]])
+                if len(names) != 1:
+                    raise ValueError(
+                        f"Cannot uniquely align annotation {ann.get('id')} for "
+                        f"door {source['original_file_name']} by original ID or resized box."
+                    )
+                name = names.pop()
+            else:
+                name = categories[original_ann["category_id"]]
             if name in test_ids:
                 annotations.append({**ann, "category_id": test_ids[name]})
         sources.append({
