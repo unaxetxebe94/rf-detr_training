@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from uuid import NAMESPACE_URL, uuid5
 
 import cv2
 import numpy as np
@@ -13,7 +14,9 @@ from PIL import Image
 
 from src.fuse_datasets import DatasetFuser
 from src.preprocess.annotations import read_annotations, write_annotations
-from src.test.__main__ import _align_categories, evaluate_dataset, main
+from src.test.__main__ import (
+    _align_categories, _align_door_categories, evaluate_dataset, main,
+)
 from src.test.image_evaluation import (
     door_bucket,
     evaluate_images,
@@ -246,13 +249,20 @@ class ImageEvaluationTests(unittest.TestCase):
             name: model_class for name in
             ("RFDETRLarge", "RFDETRMedium", "RFDETRSmall", "RFDETRNano")
         })
-        config = SimpleNamespace(model_type="large", final_data=self.root)
+        config = SimpleNamespace(
+            model_type="large", final_data=self.root,
+            data_src1=self.root / "raw1", data_src2=self.root / "raw2",
+        )
         with patch.dict("sys.modules", {"rfdetr": rfdetr}):
             with patch("src.test.__main__.get_global_config", return_value=config):
                 with patch("src.test.__main__.evaluate_dataset") as evaluate:
                     for argv, expected in (([], None), (["--global-threshold", "0.35"], 0.35)):
                         self.assertEqual(main(argv), 0)
                         self.assertEqual(evaluate.call_args.kwargs["global_threshold"], expected)
+                        self.assertEqual(
+                            evaluate.call_args.kwargs["original_data_dirs"],
+                            (config.data_src1, config.data_src2),
+                        )
                     weights = self.root / "weights.pth"
                     snapshot = self.root / "training_categories.json"
                     write_annotations(snapshot, {"categories": []})
@@ -361,6 +371,102 @@ class ImageEvaluationTests(unittest.TestCase):
             read_annotations(self.root / "test" / "_annotations.coco.json")["categories"],
             [{"id": 11, "name": "defect"}, {"id": 3, "name": "untrained"}],
         )
+
+    def test_door_alignment_uses_original_catalog_per_dataset_and_keeps_geometry(self):
+        test_dir = self.root / "test"
+        coco = self.make_dataset(test_dir)
+        coco["source_images"] = coco["source_images"][:2]
+        directories = (self.root / "raw1", self.root / "raw2")
+        for index, directory in enumerate(directories):
+            original = {
+                "categories": [
+                    {"id": 7, "name": "defect" if index == 0 else "other"},
+                    {"id": 8, "name": "untrained"},
+                ],
+                "images": [{"id": 1, "file_name": "same.tiff"}],
+                "annotations": [
+                    {"id": 10, "image_id": 1, "category_id": 7},
+                    {"id": 11, "image_id": 1, "category_id": 8},
+                ],
+            }
+            write_annotations(directory / "_annotations.coco.json", original)
+            source = coco["source_images"][index]
+            source.update(
+                id=uuid5(NAMESPACE_URL, str((directory / "same.tiff").resolve())).hex,
+                original_file_name="same.tiff",
+                annotations=[
+                    {"id": 10, "category_id": 7, "bbox": [4, 4, 8, 8]},
+                    {"id": 11, "category_id": 8, "bbox": [20, 4, 8, 8]},
+                ],
+            )
+        original_coco = copy.deepcopy(coco)
+        aligned = _align_door_categories(coco, directories)
+        self.assertEqual(
+            [source["annotations"] for source in aligned["source_images"]],
+            [[{"id": 10, "category_id": label, "bbox": [4, 4, 8, 8]}]
+             for label in (0, 1)],
+        )
+        self.assertEqual(aligned["categories"], coco["categories"])
+        self.assertEqual(aligned["annotations"], coco["annotations"])
+        self.assertEqual(coco, original_coco)
+        self.assertEqual(_align_door_categories(aligned, directories), aligned)
+        coco["source_images"][0]["id"] = "legacy"
+        with self.assertRaisesRegex(ValueError, "Cannot identify original dataset"):
+            _align_door_categories(coco, directories)
+
+    def test_pipeline_aligns_original_door_categories_before_detection_without_disk_changes(self):
+        test_dir = self.root / "test"
+        coco = self.make_dataset(test_dir)
+        write_annotations(self.root / "train" / "_annotations.coco.json", {
+            "categories": [{"id": 3, "name": "defect"}, {"id": 9, "name": "other"}],
+        })
+        directories = (self.root / "raw1", self.root / "raw2")
+        raw = {
+            "categories": [{"id": 7, "name": "defect"}],
+            "images": [
+                {"id": index, "file_name": source["original_file_name"]}
+                for index, source in enumerate(coco["source_images"])
+            ],
+            "annotations": [],
+        }
+        for index, source in enumerate(coco["source_images"]):
+            for ann in source["annotations"]:
+                ann.update(id=index, category_id=7)
+                raw["annotations"].append({
+                    **ann, "image_id": index, "bbox": [12, 12, 24, 24],
+                })
+        write_annotations(directories[0] / "_annotations.coco.json", raw)
+        write_annotations(directories[1] / "_annotations.coco.json", {
+            "categories": [], "images": [], "annotations": [],
+        })
+        write_annotations(test_dir / "_annotations.coco.json", coco)
+        paths = [test_dir / "_annotations.coco.json"] + [
+            directory / "_annotations.coco.json" for directory in directories
+        ]
+        disk_contents = [path.read_bytes() for path in paths]
+
+        def predict(path, threshold):
+            positive = Path(path).name in ("door0_tile0.png", "door2_tile0.png")
+            return SimpleNamespace(
+                xyxy=[[4, 4, 12, 12]] if positive else [],
+                class_id=[3] if positive else [], confidence=[0.9] if positive else [],
+            )
+
+        with redirect_stdout(io.StringIO()):
+            result = evaluate_dataset(
+                SimpleNamespace(predict=predict), test_dir, self.root / "output",
+                global_threshold=0.5, original_data_dirs=directories,
+            )
+        self.assertEqual(result["F1-Score"], 1.0)
+        self.assertEqual(result["category_id_to_name"], {"3": "defect", "9": "other"})
+        self.assertEqual(result["image_detection_metrics"]["F1-Score"], 1.0)
+        self.assertEqual(result["image_detection_metrics"]["mAP@50"], 1.0)
+        self.assertEqual(result["image_metrics"]["Total TP"], 2)
+        self.assertEqual(result["image_metrics"]["Total TN"], 2)
+        self.assertEqual([path.read_bytes() for path in paths], disk_contents)
+        del coco["source_images"][0]["annotations"][0]["id"]
+        with self.assertRaisesRegex(ValueError, "Original annotation"):
+            _align_door_categories(coco, directories)
 
     def test_map_counts_classes_with_no_predictions(self):
         ground_truth = {1: [([0, 0, 10, 10], 0), ([20, 20, 10, 10], 1)]}

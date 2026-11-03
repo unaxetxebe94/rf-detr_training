@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 
 import cv2
 
@@ -23,6 +24,53 @@ IOU_THRESHOLD = 0.3
 RAW_THRESHOLD = 0.05
 DEFAULT_THRESHOLD = 0.5
 PRETRAIN_WEIGHTS = Path("trainings") / "training" / "checkpoint_best_total.pth"
+
+
+def _align_door_categories(coco, original_data_dirs):
+    test_ids = {cat["name"]: cat["id"] for cat in coco["categories"]}
+    if len(test_ids) != len(coco["categories"]):
+        raise ValueError("Test category names must be unique for door alignment.")
+    originals_by_source, originals_by_name = {}, {}
+    for directory in dict.fromkeys(Path(path) for path in original_data_dirs):
+        original = read_annotations(directory / "_annotations.coco.json")
+        categories = {cat["id"]: cat["name"] for cat in original["categories"]}
+        annotations = group_annotations_by_image(original)
+        for image in original["images"]:
+            source_id = uuid5(
+                NAMESPACE_URL, str((directory / image["file_name"]).resolve())
+            ).hex
+            entry = (categories, {
+                ann["id"]: ann for ann in annotations.get(image["id"], [])
+            })
+            originals_by_source[source_id] = entry
+            originals_by_name.setdefault(image["file_name"], []).append(entry)
+
+    sources = []
+    for source in coco["source_images"]:
+        entry = originals_by_source.get(source["id"])
+        if entry is None:
+            candidates = originals_by_name.get(source["original_file_name"], [])
+            if len(candidates) != 1:
+                raise ValueError(
+                    f"Cannot identify original dataset for door {source['original_file_name']}."
+                )
+            entry = candidates[0]
+        categories, original_annotations = entry
+        annotations = []
+        for ann in source["annotations"]:
+            original_ann = original_annotations.get(ann.get("id"))
+            if original_ann is None:
+                raise ValueError(
+                    f"Original annotation {ann.get('id')} not found for "
+                    f"door {source['original_file_name']}."
+                )
+            name = categories[original_ann["category_id"]]
+            if name in test_ids:
+                annotations.append({**ann, "category_id": test_ids[name]})
+        sources.append({
+            **source, "annotations": annotations, "has_defects": bool(annotations),
+        })
+    return {**coco, "source_images": sources}
 
 
 def _align_categories(coco, training_categories):
@@ -91,7 +139,8 @@ def _predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
 def evaluate_dataset(model, test_dir: Path, output_dir: Path,
                      valid_dir: Path | None = None,
                      global_threshold: float | None = None,
-                     train_annotations: Path | None = None) -> dict:
+                     train_annotations: Path | None = None,
+                     original_data_dirs: tuple[Path, Path] | None = None) -> dict:
     if global_threshold is not None and not 0 <= global_threshold <= 1:
         raise ValueError("Global threshold must be between 0 and 1.")
     test_dir, output_dir = Path(test_dir), Path(output_dir)
@@ -113,6 +162,8 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
                 "Use --train-annotations with the original training COCO JSON. "
                 f"Checkpoint: {list(checkpoint_names)}; dataset: {training_names}"
             )
+    if original_data_dirs is not None:
+        coco = _align_door_categories(coco, original_data_dirs)
     coco = _align_categories(coco, training["categories"])
     category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
     if global_threshold is None:
@@ -243,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         model, cfg.final_data / "test", cfg.final_data / "test_output",
         global_threshold=args.global_threshold,
         train_annotations=train_annotations,
+        original_data_dirs=(cfg.data_src1, cfg.data_src2),
     )
     return 0
 
