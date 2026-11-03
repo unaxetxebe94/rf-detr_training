@@ -105,6 +105,10 @@ class ImageEvaluationTests(unittest.TestCase):
     def test_complete_images_rendered_once_into_all_four_buckets(self):
         test_dir, output_dir = self.root / "test", self.root / "doors"
         coco = self.make_dataset(test_dir)
+        for index, source in enumerate(coco["source_images"]):
+            source["original_file_name"] = str(
+                Path("originals") / f"original_door{index}.tiff"
+            )
         # A wrong-class detection far from GT still makes this door a binary TP.
         predictions = {
             2: [([20, 20, 4, 4], 1, 0.9)],
@@ -113,10 +117,10 @@ class ImageEvaluationTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             binary, detection = evaluate_images(coco, predictions, test_dir, output_dir)
         for bucket, filename in (
-            ("TP", "door0.png"), ("FP", "door1.png"),
-            ("FN", "door2.png"), ("TN", "door3.png"),
+            ("TP", "original_door0.tiff"), ("FP", "original_door1.tiff"),
+            ("FN", "original_door2.tiff"), ("TN", "original_door3.tiff"),
         ):
-            paths = list((output_dir / bucket).glob("*.png"))
+            paths = list((output_dir / bucket).iterdir())
             self.assertEqual([path.name for path in paths], [filename])
             self.assertEqual(cv2.imread(str(paths[0])).shape, (32, 128, 3))
         for key in ("Precision", "Recall", "F1-Score", "Accuracy", "Specificity"):
@@ -175,7 +179,7 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(read_annotations(output_dir / "metrics.json"), result)
         self.assertTrue((output_dir / "TP" / "door0_tile0.png").is_file())
         self.assertTrue((output_dir / "FN" / "door2_tile0.png").is_file())
-        self.assertTrue((output_dir / "doors" / "TN" / "door3.png").is_file())
+        self.assertTrue((output_dir / "doors" / "TN" / "door3.tiff").is_file())
 
     def test_test_pipeline_applies_selected_per_class_thresholds(self):
         test_dir, output_dir = self.root / "test", self.root / "output"

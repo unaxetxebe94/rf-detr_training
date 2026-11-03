@@ -81,7 +81,7 @@ def evaluate_images(coco, predictions_by_tile, test_dir, output_dir, iou_thresho
             image_path, gt_boxes, gt_labels, labels,
             pred_boxes, pred_labels, pred_scores, labels, tp, fp, fn, mis,
         )
-        destination = output_dir / bucket / Path(source["file_name"]).name
+        destination = output_dir / bucket / Path(source["original_file_name"]).name
         if not cv2.imwrite(str(destination), rendered):
             raise OSError(f"No se pudo guardar la imagen: {destination}")
         print(f"Puerta {source['original_file_name']}: {bucket}")
