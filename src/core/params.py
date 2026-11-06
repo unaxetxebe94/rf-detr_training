@@ -1,6 +1,13 @@
-import yaml
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+
+@dataclass
+class DataConfig:
+    sources: list[Path]
+    training_dataset_path: Path
 
 
 @dataclass
@@ -8,14 +15,10 @@ class GlobalConfig:
     task_name: str
     model_type: str
     seed: int
-    data_src1: Path
-    data_src2: Path
-    final_data: Path
 
 
 @dataclass
 class PreprocessConfig:
-    requires_preprocess: bool
     saving_prob: float
     min_retained_dimension_ratio: float
     resize: float
@@ -45,7 +48,7 @@ class TrainConfig:
     eval_max_dets: int
 
 
-def read_params(path: str = r"params.yaml"):
+def read_params(path: str = r"../params.yaml"):
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -58,9 +61,20 @@ def get_global_config():
         task_name=values["task_name"],
         model_type=values["model_type"].lower(),
         seed=values["seed"],
-        data_src1=Path(values["data_src1"]),
-        data_src2=Path(values["data_src2"]),
-        final_data=Path(values["final_data"]),
+    )
+
+
+def get_data_config():
+    params = read_params()
+    data_params = params.get("data", {})
+    if not data_params:
+        raise ValueError("No se encontraron parámetros de configuración de datos en params.yaml")
+    if "sources" not in data_params or "training-dataset-path" not in data_params:
+        raise ValueError("Los parámetros de configuración de datos deben incluir 'sources' y 'training-dataset-path'")
+    sources = [Path(source) for source in data_params["sources"]]
+    return DataConfig(
+        sources=sources,
+        training_dataset_path=Path(data_params["training-dataset-path"])
     )
 
 

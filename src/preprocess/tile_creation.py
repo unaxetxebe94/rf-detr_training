@@ -5,17 +5,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from .image import open_image
-from .roi import detect_roi
-from .geometry import build_geometry_index, calculate_overlap
+from ..core.params import get_global_config, get_preprocess_config
 from .annotations import (
     group_annotations_by_image,
     read_annotations,
     transform_annotations,
     write_annotations,
 )
-from ..core.params import get_global_config, get_preprocess_config
-
+from .geometry import build_geometry_index, calculate_overlap
+from .image import open_image
+from .roi import detect_roi
 
 _RAM_SEMAPHORE = threading.Semaphore(4)
 TILE_SIZE_MAPPER = {"nano": 384, "small": 512, "medium": 576, "large": 704}
@@ -47,9 +46,9 @@ def _process_image_inner(
 ):
     img_path = input_dir / img_info["file_name"]
     source_id = uuid5(NAMESPACE_URL, str(img_path.resolve())).hex
-    try: 
+    try:
         img = open_image(str(img_path))
-    except:
+    except Exception:
         print(f"Failed to open {img_path}")
         return [], [], None
     orig_w, orig_h = img.width, img.height
@@ -124,7 +123,7 @@ def create_tiles(
     probability = cfg.saving_prob if saving_prob is None else saving_prob
     if not 0 <= probability <= 1:
         raise ValueError("saving_prob debe estar en [0, 1].")
-    input_dir = Path(input_dir) if input_dir is not None else global_cfg.data_src1
+    input_dir = Path(input_dir) if input_dir is not None else global_cfg.sources[0]
     output_dir = Path(output_dir)
     coco = annotations if annotations is not None else read_annotations(
         input_dir / "_annotations.coco.json"

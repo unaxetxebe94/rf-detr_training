@@ -12,18 +12,21 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from core.fuse_datasets import DatasetFuser
+from core.fuse_datasets import _fuse_datasets as fuse_datasets
 from src.preprocess.annotations import read_annotations, write_annotations
 from src.test.__main__ import (
-    _align_categories, _align_door_categories, evaluate_dataset, main,
+    _align_categories,
+    _align_door_categories,
+    evaluate_dataset,
+    main,
 )
 from src.test.image_evaluation import (
     door_bucket,
     evaluate_images,
     reconstruct_predictions,
 )
-from src.test.metrics import binary_metrics, compute_map, detection_metrics
 from src.test.matching import match_predictions
+from src.test.metrics import binary_metrics, compute_map, detection_metrics
 from src.test.thresholds import find_optimal_thresholds, select_thresholds
 
 
@@ -253,30 +256,34 @@ class ImageEvaluationTests(unittest.TestCase):
             name: model_class for name in
             ("RFDETRLarge", "RFDETRMedium", "RFDETRSmall", "RFDETRNano")
         })
-        config = SimpleNamespace(
-            model_type="large", final_data=self.root,
-            data_src1=self.root / "raw1", data_src2=self.root / "raw2",
+        config = SimpleNamespace(model_type="large")
+        data_config = SimpleNamespace(
+            sources=[self.root / "raw1", self.root / "raw2"],
+            training_dataset_path=self.root,
         )
         with patch.dict("sys.modules", {"rfdetr": rfdetr}):
             with patch("src.test.__main__.get_global_config", return_value=config):
-                with patch("src.test.__main__.evaluate_dataset") as evaluate:
-                    for argv, expected in (([], None), (["--global-threshold", "0.35"], 0.35)):
-                        self.assertEqual(main(argv), 0)
-                        self.assertEqual(evaluate.call_args.kwargs["global_threshold"], expected)
-                        self.assertEqual(
-                            evaluate.call_args.kwargs["original_data_dirs"],
-                            (config.data_src1, config.data_src2),
-                        )
-                    weights = self.root / "weights.pth"
-                    snapshot = self.root / "training_categories.json"
-                    write_annotations(snapshot, {"categories": []})
-                    main(["--weights", str(weights)])
-                    self.assertEqual(evaluate.call_args.kwargs["train_annotations"], snapshot)
-                    original = self.root / "original.json"
-                    main([
-                        "--weights", str(weights), "--train-annotations", str(original),
-                    ])
-                    self.assertEqual(evaluate.call_args.kwargs["train_annotations"], original)
+                with patch(
+                    "src.test.__main__.get_data_config", return_value=data_config
+                ):
+                    with patch("src.test.__main__.evaluate_dataset") as evaluate:
+                        for argv, expected in (([], None), (["--global-threshold", "0.35"], 0.35)):
+                            self.assertEqual(main(argv), 0)
+                            self.assertEqual(evaluate.call_args.kwargs["global_threshold"], expected)
+                            self.assertEqual(
+                                evaluate.call_args.kwargs["original_data_dirs"],
+                                tuple(data_config.sources),
+                            )
+                        weights = self.root / "weights.pth"
+                        snapshot = self.root / "training_categories.json"
+                        write_annotations(snapshot, {"categories": []})
+                        main(["--weights", str(weights)])
+                        self.assertEqual(evaluate.call_args.kwargs["train_annotations"], snapshot)
+                        original = self.root / "original.json"
+                        main([
+                            "--weights", str(weights), "--train-annotations", str(original),
+                        ])
+                        self.assertEqual(evaluate.call_args.kwargs["train_annotations"], original)
 
     def test_global_threshold_rejects_invalid_values_before_loading_model(self):
         for value in ("-0.1", "1.1", "nan", "inf", "invalid"):
@@ -716,7 +723,7 @@ class ImageEvaluationTests(unittest.TestCase):
             )
             write_annotations(path / "_annotations.coco.json", coco)
         output = self.root / "fused"
-        DatasetFuser.fuse_datasets(*paths, output)
+        fuse_datasets(paths, output)
         result = read_annotations(output / "_annotations.coco.json")
         self.assertEqual(len(result["source_images"]), 2)
         self.assertEqual(len({img["id"] for img in result["images"]}), 2)

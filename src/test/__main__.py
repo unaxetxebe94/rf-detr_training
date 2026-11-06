@@ -11,15 +11,14 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.test"
 
-from ..core.params import get_global_config
+from ..core.params import get_data_config, get_global_config
 from ..preprocess.annotations import group_annotations_by_image, read_annotations
-from .iou import xyxy_to_xywh
-from .thresholds import select_thresholds
-from .matching import match_predictions
 from .drawing import render_image
-from .metrics import detection_metrics
 from .image_evaluation import evaluate_images, reconstruct_predictions
-
+from .iou import xyxy_to_xywh
+from .matching import match_predictions
+from .metrics import detection_metrics
+from .thresholds import select_thresholds
 
 IOU_THRESHOLD = 0.3
 RAW_THRESHOLD = 0.05
@@ -71,7 +70,7 @@ def _align_door_categories(coco, original_data_dirs):
                         if box is not None and all(
                             isclose(value, original_value * scale, abs_tol=1.0)
                             for value, original_value, scale in zip(
-                                ann["bbox"], box, (scale_x, scale_y, scale_x, scale_y)
+                                ann["bbox"], box, (scale_x, scale_y, scale_x, scale_y), strict=True
                             )
                         ):
                             names.add(categories[candidate["category_id"]])
@@ -146,7 +145,7 @@ def _predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
         raw_predictions[image["id"]] = [
             (xyxy_to_xywh(box), int(label) + 1, float(score))
             for box, label, score in zip(
-                prediction.xyxy, prediction.class_id, prediction.confidence
+                prediction.xyxy, prediction.class_id, prediction.confidence, strict=True
             )
             if int(label) + 1 in allowed_labels
         ]
@@ -277,8 +276,8 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
 def _confidence_threshold(value):
     try:
         threshold = float(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError("Threshold must be a float between 0 and 1.")
+    except ValueError as err:
+        raise argparse.ArgumentTypeError("Threshold must be a float between 0 and 1.") from err
     if not 0 <= threshold <= 1:
         raise argparse.ArgumentTypeError("Threshold must be between 0 and 1.")
     return threshold
@@ -297,7 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     cfg = get_global_config()
-    from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRSmall, RFDETRNano
+    data_cfg = get_data_config()
+    from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRNano, RFDETRSmall
 
     models = {
         "nano": RFDETRNano, "small": RFDETRSmall,
@@ -309,10 +309,11 @@ def main(argv: list[str] | None = None) -> int:
     if train_annotations is None and snapshot.is_file():
         train_annotations = snapshot
     evaluate_dataset(
-        model, cfg.final_data / "test", cfg.final_data / "test_output",
+        model, data_cfg.training_dataset_path / "test",
+        data_cfg.training_dataset_path / "test_output",
         global_threshold=args.global_threshold,
         train_annotations=train_annotations,
-        original_data_dirs=(cfg.data_src1, cfg.data_src2),
+        original_data_dirs=tuple(data_cfg.sources),
     )
     return 0
 

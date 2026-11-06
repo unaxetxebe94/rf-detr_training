@@ -15,8 +15,7 @@
 
 Import-Module powershell-yaml
 $config = Get-Content params.yaml -Raw | ConvertFrom-Yaml
-$dataSrc2 = $config["data-src2"]
-$finalData = $config["final-data"]
+$finalData = $config["data"]["training-dataset-path"]
 
 $ErrorActionPreference = "Stop"
 $StartTime = Get-Date
@@ -66,64 +65,6 @@ function Invoke-Stage {
     Write-Ok "$StageName completado."
 }
 
-function Invoke-ParallelPreprocess {
-    Write-Step "Preprocesado (paralelo)"
-
-    # Preprocesado en el master
-    $p1 = Start-Process `
-        -FilePath "uv" `
-        -ArgumentList @(
-            "run",
-            "--no-capture-output",
-            "python",
-            "-u",
-            "src/preprocess/__main__.py",
-            "--is-master"
-        ) `
-        -PassThru `
-        -NoNewWindow
-
-    # Preprocesado en el esclavo
-    $p2 = Start-Process `
-        -FilePath "python" `
-        -ArgumentList @(
-            "-u",
-            "src/preprocess/__main__.py"
-        ) `
-        -PassThru `
-        -NoNewWindow
-
-	Write-Host "=== P1 ==="
-	$p1 | Format-List *
-
-	Write-Host "=== P2 ==="
-	$p2 | Format-List *
-
-    	$p1.WaitForExit()
-	$p2.WaitForExit()
-
-	$p1.Refresh()
-	$p2.Refresh()
-
-	Write-Host "Master HasExited = $($p1.HasExited)"
-	Write-Host "Slave HasExited = $($p2.HasExited)"
-
-	Write-Host "Master ExitCode = '$($p1.ExitCode)'"
-	Write-Host "Slave ExitCode = '$($p2.ExitCode)'"
-
-    if ($p1.ExitCode -ne 0) {
-        Write-Err "Preprocesado de data-src1 falló (exit code $($p1.ExitCode))."
-        exit $p1.ExitCode
-    }
-
-    if ($p2.ExitCode -ne 0) {
-        Write-Err "Preprocesado data-src2 falló (exit code $($p2.ExitCode))."
-        exit $p2.ExitCode
-    }
-
-    Write-Ok "Preprocesados completados."
-}
-
 
 # -----------------------------------------------------------------------------
 # Preguntar si se quiere guardar el dataset en git
@@ -157,7 +98,6 @@ else {
 Write-Step "Preparación de datos"
 
 $response = Read-Host "¿Los datos ya están preparados? (y/[n])"
-$useSlave = "n"
 if ($response -eq "y") {
     $isDataPrepared = $true
     Write-Host "No se ejecutará ni el preprocesado ni la fusión" -ForegroundColor Yellow
@@ -165,14 +105,6 @@ if ($response -eq "y") {
 elseif ($response -eq "n" -or $response -eq "") {
     Write-Warn "Se ejecutará el preprocesado"
     $isDataPrepared = $false
-
-    $useSlave = Read-Host "¿Quieres usar las imágenes del Slave? ([y]/n)"
-    if ($useSlave -eq "y" -or $useSlave -eq "") {
-        Write-Warn "Se funsionarán los datasets"
-    } elseif ($useSlave -ne "n") {
-        Write-Err "Respuesta inválida. Usa 'y' o 'n'."
-        exit 1
-    }
 }
 else {
     Write-Err "Respuesta inválida. Usa 'y' o 'n'."
@@ -185,44 +117,19 @@ else {
 # -----------------------------------------------------------------------------
 
 if (-not $isDataPrepared) {
-
-    if ($useSlave -eq "y") {
-        if (Test-Path $finalData) {
-            Remove-Item $finalData -Recurse
-        }
-        # 0. Preprocesado en paralelo 
-        # Invoke-Stage "Preprocesado" "src/preprocess_pipeline.py" @("--is-master")
-        Invoke-ParallelPreprocess
-        # 1. Mover los archivos de src2 a dst2
-        $slavePath = Join-Path $finalData "slave"
-        New-Item -ItemType Directory -Force -Path $slavePath | Out-Null
-        Get-ChildItem "$dataSrc2\formatted" | ForEach-Object {
-            Move-Item $_.FullName $slavePath -Force
-        }
-        # 2. Fusionar los datasets del master y slave
-        Invoke-Stage "Fusión de datasets" "src/fuse_datasets.py"
-    } else {
-        Invoke-Stage "Fusión de datasets" "src/preprocess/__main__.py" @("--is-master")
-
-        $masterPath = Join-Path $finalData "master"
-
-        # Mover todo el contenido de master a final-data
-        Get-ChildItem -Path $masterPath -Force | ForEach-Object {
-            Move-Item -Path $_.FullName -Destination $finalData -Force
-        }
-
-        # Eliminar la carpeta master vacía
-        Remove-Item -Path $masterPath -Recurse -Force
+    if (Test-Path $finalData) {
+        Remove-Item $finalData -Recurse
     }
+    # 0. Preprocesado en paralelo 
+    Invoke-Stage "Preprocesado" "src/preprocess/__main__.py"
+    # 2. Fusionar los datasets del master y slave
+    Invoke-Stage "Fusión de datasets" "src/core/fuse_datasets.py"
 }
 
 # 2. Entrenamiento
 Invoke-Stage "Entrenamiento" "src/core/train.py"
 
-# 3. Procesado de resultados + logging a W&B
-Invoke-Stage "Procesado de resultados" "src/core/process_results.py"
-
-# 4. Test
+# 3. Test
 Invoke-Stage "Test" "src/test/__main__.py"
 
 
@@ -239,7 +146,7 @@ $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 Copy-Item "trainings\training\checkpoint_best_total.pth" "$timestamp.pth"
 
 
-# Lo de git
+# Git
 if ($commit -eq "y" -or $commit -eq "") {
     Write-Host "Guardando estado en git..." -ForegroundColor Yellow
 

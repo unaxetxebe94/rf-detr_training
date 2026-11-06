@@ -9,34 +9,32 @@
 # Todas las etapas se ejecutan con `uv run` para garantizar que se usa
 # exactamente el entorno bloqueado en uv.lock.
 #
+# Uso: ./run_pipeline.sh
+#
 set -u
+
+START_TIME=$(date +%s)
 
 # ─────────────────────────────────────────────
 # Leer params.yaml con Python (como Get-Content params.yaml | ConvertFrom-Yaml)
 # ─────────────────────────────────────────────
 
-read_param_yaml () {
+read_config_yaml () {
   uv run python - <<EOF
 import yaml
 with open("params.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
-print(cfg.get("data-src2", ""))
-print(cfg.get("final-data", ""))
+print(cfg["data"]["training-dataset-path"])
 EOF
 }
 
-readarray -t config < <(read_param_yaml)
+FINAL_DATA=$(read_config_yaml)
 
-DATA_SRC2=${config[0]:-}
-FINAL_DATA=${config[1]:-}
-
-if [ -z "$DATA_SRC2" ] || [ -z "$FINAL_DATA" ]; then
-  write_err "No se han podido leer 'data-src2' y/o 'final-data' desde params.yaml."
+if [ -z "$FINAL_DATA" ]; then
+  echo "No se ha podido leer 'data.training-dataset-path' desde params.yaml."
   exit 1
 fi
-
-START_TIME=$(date +%s)
 
 # ─────────────────────────────────────────────
 # Helpers (Write-Step / Write-Ok / Write-Warn / Write-Err / Invoke-Stage)
@@ -50,7 +48,7 @@ RESET=$'\e[0m'
 
 write_step () {
   printf '\n[%s] ======================================\n' "$(date +%H:%M:%S)"
-  printf '[%s] %s %s\n' "$(date +%H:%M:%S)" "${CYAN}$1${RESET}" ""
+  printf '[%s]  %s\n' "$(date +%H:%M:%S)" "${CYAN}$1${RESET}"
   printf '[%s] ======================================\n' "$(date +%H:%M:%S)"
 }
 
@@ -59,6 +57,7 @@ write_warn () { printf '  %s %s\n' "${YELLOW}WARNING${RESET}" "$1"; }
 write_err  () { printf '  %s %s\n' "${RED}ERROR${RESET}" "$1"; }
 
 # invoke_stage "Nombre etapa" "ruta/script.py" [argumentos...]
+# Equivalente a Invoke-Stage del .ps1.
 invoke_stage () {
   local stage_name=$1
   local script=$2
@@ -77,54 +76,25 @@ invoke_stage () {
   write_ok "$stage_name completado."
 }
 
-# Invoke-ParallelPreprocess: master con uv, esclavo con python del sistema
-invoke_parallel_preprocess () {
-  write_step "Preprocesado (paralelo)"
-
-  uv run --no-capture-output python -u src/preprocess/__main__.py --is-master &
-  local p1=$!
-
-  python -u src/preprocess/__main__.py &
-  local p2=$!
-
-  echo "master (uv) pid: $p1"
-  echo "slave (python) pid: $p2"
-
-  local e1=0 e2=0
-  wait "$p1" || e1=$?
-  wait "$p2" || e2=$?
-
-  echo "Master ExitCode = $e1"
-  echo "Slave ExitCode = $e2"
-
-  if [ "$e1" -ne 0 ]; then
-    write_err "Preprocesado de data-src1 falló (exit code $e1)."
-    exit "$e1"
-  fi
-
-  if [ "$e2" -ne 0 ]; then
-    write_err "Preprocesado data-src2 falló (exit code $e2)."
-    exit "$e2"
-  fi
-
-  write_ok "Preprocesados completados."
-}
-
 # ─────────────────────────────────────────────
 # Preguntar si se quiere guardar el dataset en git
 # ─────────────────────────────────────────────
 
 write_step "Versionado del dataset"
 
+# COMMIT
 read -r -p "¿Quieres guardar la base de datos en git para reproducir el experimento (COMMIT)? ([y]/n): " commit
 commit=${commit:-y}
 
 push="n"
 commit_message=""
 case "$commit" in
-  y|Y)
+  y|Y)  # el .ps1 también acepta la respuesta vacía como "y"
+    # Mensaje del commit
     read -r -p "Escribe el mensaje del commit: " commit_message
+    # PUSH
     read -r -p "¿Quieres hacer PUSH de los cambios? ([y]/n): " push
+    push=${push:-y}
     ;;
   n|N)
     write_warn "Se ejecutará el pipeline sin versionar el dataset."
@@ -144,28 +114,13 @@ write_step "Preparación de datos"
 read -r -p "¿Los datos ya están preparados? (y/[n]): " response
 
 is_data_prepared=false
-use_slave="n"
 case "$response" in
   y|Y)
     is_data_prepared=true
     write_warn "No se ejecutará ni el preprocesado ni la fusión"
     ;;
-  n|N|'')
+  n|N|'')  # el .ps1 también acepta la respuesta vacía como "n"
     write_warn "Se ejecutará el preprocesado"
-
-    read -r -p "¿Quieres usar las imágenes del Slave? ([y]/n): " use_slave
-    use_slave=${use_slave:-y}
-    case "$use_slave" in
-      y|Y)
-        write_warn "Se funsionarán los datasets"
-        ;;
-      n|N)
-        ;;
-      *)
-        write_err "Respuesta inválida. Usa 'y' o 'n'."
-        exit 1
-        ;;
-    esac
     ;;
   *)
     write_err "Respuesta inválida. Usa 'y' o 'n'."
@@ -179,46 +134,23 @@ esac
 
 if ! "$is_data_prepared"; then
 
-  if [ "$use_slave" = "y" ] || [ "$use_slave" = "Y" ]; then
-
-    if [ -e "$FINAL_DATA" ]; then
-      rm -rf -- "$FINAL_DATA"
-    fi
-
-    # 0. Preprocesado en paralelo (master y slave)
-    invoke_parallel_preprocess
-
-    # 1. Mover los archivos de src2 a final-data/slave
-    slave_path="$FINAL_DATA/slave"
-    mkdir -p -- "$slave_path"
-    find "$DATA_SRC2/formatted" -mindepth 1 -maxdepth 1 -print0 2>/dev/null |
-      xargs -0 -r mv -f -t "$slave_path"
-
-    # 2. Fusionar los datasets del master y slave
-    invoke_stage "Fusión de datasets" "src/core/fuse_datasets.py"
-  else
-    invoke_stage "Fusión de datasets" "src/preprocess/__main__.py" --is-master
-
-    master_path="$FINAL_DATA/master"
-
-    # Mover todo el contenido de master a final-data
-    find "$master_path" -mindepth 1 -maxdepth 1 -print0 2>/dev/null |
-      xargs -0 -r mv -f -t "$FINAL_DATA"
-
-    # Eliminar la carpeta master vacía
-    rm -rf -- "$master_path"
+  # El preprocesado escribe el dataset resultante en FINAL_DATA.
+  if [ -e "$FINAL_DATA" ]; then
+    rm -rf -- "$FINAL_DATA"
   fi
+
+  # 0. Preprocesado de todas las fuentes declaradas en data.sources
+  invoke_stage "Preprocesado" "src/preprocess/__main__.py"
+
+  # 1. Fusionar los datasets preprocesados de todas las fuentes
+  invoke_stage "Fusión de datasets" "src/core/fuse_datasets.py"
 fi
 
 # 2. Entrenamiento
 invoke_stage "Entrenamiento" "src/core/train.py"
 
-# 3. Procesado de resultados + logging a W&B
-invoke_stage "Procesado de resultados" "src/core/process_results.py"
-
-# 4. Test
+# 3. Test
 invoke_stage "Test" "src/test/__main__.py"
-
 
 # ─────────────────────────────────────────────
 # Resumen final
@@ -231,15 +163,13 @@ write_ok "Tiempo total: $(date -u -d "@$ELAPSED" +%H:%M:%S)"
 echo ""
 
 timestamp=$(date +%Y-%m-%d_%H-%M-%S)
-cp trainings/training/checkpoint_best_total.pth "$timestamp.pth" \
-  || write_warn "No se pudo copiar trainings/training/checkpoint_best_total.pth"
-
+cp trainings/training/checkpoint_best_total.pth "$timestamp.pth"
 
 # ─────────────────────────────────────────────
-# Lo de git
+# Git: snapshot del dataset antes del experimento
 # ─────────────────────────────────────────────
 
-if [ "$commit" = "y" ] || [ "$commit" = "Y" ]; then
+if [ "$commit" = "y" ]; then
   write_warn "Guardando estado en git..."
 
   git add .
@@ -247,24 +177,30 @@ if [ "$commit" = "y" ] || [ "$commit" = "Y" ]; then
   if git diff --cached --quiet; then
     write_warn "No hay cambios para commitear."
   else
-    if git commit -m "Snapshot dataset antes de ejecutar experimento $(date '+%Y-%m-%d %H:%M:%S'): $commit_message"; then
-      write_ok "Snapshot guardado en git."
-    else
+    git commit -m "Snapshot dataset antes de ejecutar experimento $(date '+%Y-%m-%d %H:%M:%S'): $commit_message"
+    commit_exit=$?
+    if [ "$commit_exit" -ne 0 ]; then
       write_warn "No se pudo hacer commit (quizá no hay cambios)."
+    else
+      write_ok "Snapshot guardado en git."
     fi
   fi
 
-  # PUSH
+  # PUSH (el .ps1 trata la respuesta vacía como "y")
   case "$push" in
-    y|Y|'')
+    y|Y)
       write_warn "Subiendo cambios al remoto..."
-      if git push; then
-        write_ok "Snapshot subido al remoto (push)."
-      else
+
+      git push
+
+      if [ "$?" -ne 0 ]; then
         write_warn "No se pudo hacer push"
+      else
+        write_ok "Snapshot guardado en git."
       fi
       ;;
     n|N)
+      write_warn "Se ejecutará el pipeline sin versionar el dataset."
       ;;
     *)
       write_err "Respuesta inválida. Usa 'y' o 'n'."
