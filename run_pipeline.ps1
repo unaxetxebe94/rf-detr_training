@@ -2,17 +2,16 @@
 .SYNOPSIS
     Ejecuta el pipeline completo de entrenamiento RF-DETR con versionado de datos via DVC.
 
-.PARAMETER CondaEnv
-    Nombre del entorno conda a usar. Por defecto: "rf-detr".
+.DESCRIPTION
+    Las dependencias y la versión de Python se fijan con uv (pyproject.toml +
+    uv.lock + .python-version). Antes de la primera ejecución, y siempre que
+    cambien las dependencias, hay que sincronizar el entorno con: uv sync
+    Todas las etapas se ejecutan con `uv run` para garantizar que se usa
+    exactamente el entorno bloqueado en uv.lock.
 
 .EXAMPLE
     .\run_pipeline.ps1
-    .\run_pipeline.ps1 -CondaEnv "mi-entorno"
 #>
-
-param(
-    [string]$CondaEnv = "rf-detr"
-)
 
 Import-Module powershell-yaml
 $config = Get-Content params.yaml -Raw | ConvertFrom-Yaml
@@ -52,14 +51,12 @@ function Invoke-Stage {
     $cmdArgs = @(
         "run",
         "--no-capture-output",
-        "-n",
-        $CondaEnv,
         "python",
         "-u",
         $Script
     ) + $Arguments
 
-    conda @cmdArgs
+    uv @cmdArgs
 
     if ($LASTEXITCODE -ne 0) {
         Write-Err "La etapa '$StageName' ha fallado (exit code $LASTEXITCODE)."
@@ -74,12 +71,10 @@ function Invoke-ParallelPreprocess {
 
     # Preprocesado en el master
     $p1 = Start-Process `
-        -FilePath "conda" `
+        -FilePath "uv" `
         -ArgumentList @(
             "run",
             "--no-capture-output",
-            "-n",
-            $CondaEnv,
             "python",
             "-u",
             "src/preprocess/__main__.py",

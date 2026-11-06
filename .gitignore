@@ -23,6 +23,11 @@ wandb/
 # Archivos relacionados con python
 __pycache__
 
+# Entornos y caches de uv / pytest / ruff
+.venv/
+.pytest_cache/
+.ruff_cache/
+
 # La carpeta con los datos
 data
 models

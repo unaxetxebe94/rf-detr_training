@@ -5,6 +5,39 @@ Este código se usa para entrenar modelos RF-DETR en el proyecto B1375. Este pro
 ## Vocabulario que se usa en los comentarios del código
 * **Tile**: Las imágenes originales son de $16k \times 21k$ píxeles, más o menos. Evidentemente, no se puede entrenar una red neuronal con imágenes de ese tamaño, por lo que lo solemos dividir en trozos. A cada trozo le llamamos **tile**-s ya que a la inferencia por trozos se le llama **tile inference**. 
 
+## Entorno del proyecto (uv)
+
+El proyecto usa [uv](https://docs.astral.sh/uv/) para que el entorno sea 100% reproducible:
+
+* `pyproject.toml` → declaración de las dependencias directas y grupos de desarrollo.
+* `uv.lock` → versiones exactas de **todas** las dependencias (con hashes); se debe **versionar en git**.
+* `.python-version` → versión exacta de Python (3.12); uv la descarga e instala automáticamente si hace falta.
+
+### Cómo reproducir el entorno
+
+```bash
+uv sync          # crea .venv e instala exactamente lo que hay en uv.lock
+```
+
+Cualquier comando se ejecuta a través de `uv run`, que garantiza que se usa el entorno bloqueado:
+
+```bash
+uv run pytest                  # ejecutar los tests
+uv run python -m src.test      # evaluación con ponderes: uv run python -m src.test --weights trainings/training/checkpoint_best_total.pth
+uv run python -m src.preprocess --is-master
+uv run python src/core/train.py
+```
+
+Para actualizar dependencias (se regenera `uv.lock` y hay que hacer commit):
+
+```bash
+uv add paquete-nuevo       # añadir dependencia a [project]
+uv add --dev ruff          # añadir dependencia de desarrollo
+uv lock --upgrade          # actualizar uv.lock a versiones más nuevas
+```
+
+El pipeline (`run_pipeline.ps1` / `run_pipeline.sh`) ya ejecuta todas las etapas con `uv run`, así que solo hace falta tener `uv` en el PATH (en Windows: `winget install astral-sh.uv` o `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`).
+
 ## Archivos importantes
 
 ### `params.yaml`

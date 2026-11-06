@@ -8,7 +8,7 @@ CONFIG_FILE=${1:-pipeline_config.yaml}
 # ─────────────────────────────────────────────
 
 read_yaml () {
-  python - <<EOF
+  uv run python - <<EOF
 import yaml
 with open("$CONFIG_FILE") as f:
     cfg = yaml.safe_load(f)
@@ -54,7 +54,7 @@ invoke_stage () {
   local script=$2
 
   write_step "$name"
-  python "$script"
+  uv run --no-capture-output python -- "$script"
 
   if [ $? -ne 0 ]; then
     echo "ERROR en $name"

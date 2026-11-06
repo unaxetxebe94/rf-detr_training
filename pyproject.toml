@@ -1,0 +1,72 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# rf-detr-training — Pipeline de entrenamiento de modelos RF-DETR (proyecto B1375)
+#
+# Este es un proyecto de APLICACIÓN (no librería): no declara [build-system]
+# y por tanto no se instala como paquete. Los scripts se ejecutan desde la
+# raíz del proyecto con `uv run python -m src.<paquete>` o `uv run <script>`,
+# igual que hacía conda.
+#
+# La reproducibilidad la garantizan dos archivos, ambos versionados en git:
+#   - uv.lock          → versiones exactas (hash incluido) de TODAS las
+#                        dependencias transitorias.
+#   - .python-version  → versión exacta de Python.
+#
+# Reproducir el entorno en cualquier máquina:
+#   uv sync            (crea .venv e instala exactamente lo que hay en uv.lock)
+# y ejecutar siempre el pipeline a través de `uv run ...`
+# ─────────────────────────────────────────────────────────────────────────────
+
+[project]
+name = "rf-detr-training"
+version = "0.1.0"
+description = "Preparación de datos, entrenamiento y evaluación de modelos RF-DETR para el proyecto B1375"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    # Deep learning
+    "torch>=2.4",
+    "rfdetr>=1.0.0",
+    # Imágenes
+    "pillow>=10.4",
+    # pyvips[binary] incluye la librería nativa libvips en el wheel
+    "pyvips[binary]>=2.6",
+    "opencv-python>=4.9",
+    # Geometría y anotaciones COCO
+    "shapely>=2.0",
+    "pycocotools>=2.0.8",
+    # Estratificación multietiqueta (iterstrat.ml_stratifiers)
+    "iterative-stratification>=0.0.2",
+    # Configuración y logging de experimentos
+    "pyyaml>=6.0",
+    "wandb>=0.18",
+]
+
+# Grupo de dependencias de desarrollo. Se instala con `uv sync` por defecto
+# (en producción/CI los excluye) y también queda fijado en uv.lock.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+# Proyecto de aplicación: no se empaqueta ni se autoinstala.
+package = false
+
+[tool.pytest.ini_options]
+# Los tests usan dos estilos de import a la vez:
+#   from core.params import ...      → necesita "src" en el path
+#   from src.preprocess ... import . → necesita "." en el path
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "preprocess", "test", "acotar", "src"]

@@ -42,9 +42,16 @@ class PreprocessTests(unittest.TestCase):
                 "n-jobs": 2,
             },
         }
-        config_patch = patch("src.params.read_params", return_value=self.params)
-        config_patch.start()
-        self.addCleanup(config_patch.stop)
+        # El proyecto mezcla los imports `core.params` (por PYTHONPATH=src) y
+        # `src.core.params` (paquete desde la raíz); Python los carga como
+        # módulos distintos, así que parcheamos read_params en ambos.
+        config_patches = [
+            patch("src.core.params.read_params", return_value=self.params),
+            patch("core.params.read_params", return_value=self.params),
+        ]
+        for config_patch in config_patches:
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
 
     def make_dataset(self, directory, count=20):
         directory.mkdir(parents=True, exist_ok=True)
