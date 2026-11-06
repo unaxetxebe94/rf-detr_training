@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from src.fuse_datasets import DatasetFuser
+from core.fuse_datasets import DatasetFuser
 from src.preprocess.annotations import read_annotations, write_annotations
 from src.test.__main__ import (
     _align_categories, _align_door_categories, evaluate_dataset, main,

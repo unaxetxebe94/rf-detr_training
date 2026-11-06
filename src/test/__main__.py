@@ -11,7 +11,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.test"
 
-from ..params import get_global_config
+from ..core.params import get_global_config
 from ..preprocess.annotations import group_annotations_by_image, read_annotations
 from .iou import xyxy_to_xywh
 from .thresholds import select_thresholds

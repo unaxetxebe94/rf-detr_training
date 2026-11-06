@@ -16,8 +16,8 @@ import yaml
 import wandb
 import logging
 from pathlib import Path
-from logger import get_logger
-from utils import read_params
+from core.logger import get_logger
+from core.utils import read_params
 
 logger = get_logger(__name__, level=logging.DEBUG)
 

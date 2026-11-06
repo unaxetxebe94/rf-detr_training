@@ -14,7 +14,7 @@ from .annotations import (
     transform_annotations,
     write_annotations,
 )
-from ..params import get_global_config, get_preprocess_config
+from ..core.params import get_global_config, get_preprocess_config
 
 
 _RAM_SEMAPHORE = threading.Semaphore(4)

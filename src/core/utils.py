@@ -1,7 +1,7 @@
 import random, numpy as np, torch, yaml, json, os
 from pathlib import Path
 import logging
-from logger import get_logger
+from core.logger import get_logger
 
 logger = get_logger(__name__, level=logging.DEBUG)
 

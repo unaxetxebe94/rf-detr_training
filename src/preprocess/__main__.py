@@ -7,7 +7,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.preprocess"
 
-from ..params import get_global_config, get_preprocess_config
+from ..core.params import get_global_config, get_preprocess_config
 from .annotations import SPLITS, read_annotations
 
 

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from src.params import get_global_config, get_preprocess_config
+from core.params import get_global_config, get_preprocess_config
 from src.preprocess.__main__ import is_dataset_formatted, main
 from src.preprocess.annotations import SPLITS, read_annotations, write_annotations
 from src.preprocess.augmenter import augment_dataset

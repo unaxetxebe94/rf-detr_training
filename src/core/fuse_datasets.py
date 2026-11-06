@@ -214,8 +214,8 @@ def save_preprocess_info(params: dict, dataset_dir: Path, output_dir: Path) -> N
     logger.info(f"preprocess_info.json guardado → {output_path}")
 
 if __name__ == "__main__":
-    from logger import get_logger
-    from utils import read_params, save_mapping
+    from core.logger import get_logger
+    from core.utils import read_params, save_mapping
 
     logger = get_logger(__name__, level=logging.DEBUG)
 

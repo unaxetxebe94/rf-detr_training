@@ -5,8 +5,8 @@ import yaml
 import logging
 from pathlib import Path
 from datetime import datetime
-from utils import set_seed, read_params
-from logger import get_logger
+from core.utils import set_seed, read_params
+from core.logger import get_logger
 
 if __name__ == "__main__":
     logger = get_logger(__name__, level=logging.DEBUG)
