@@ -217,10 +217,10 @@ if (-not $isDataPrepared) {
 }
 
 # 2. Entrenamiento
-Invoke-Stage "Entrenamiento" "src/train.py"
+Invoke-Stage "Entrenamiento" "src/core/train.py"
 
 # 3. Procesado de resultados + logging a W&B
-Invoke-Stage "Procesado de resultados" "src/process_results.py"
+Invoke-Stage "Procesado de resultados" "src/core/process_results.py"
 
 # 4. Test
 Invoke-Stage "Test" "src/test/__main__.py"
