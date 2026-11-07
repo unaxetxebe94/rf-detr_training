@@ -4,8 +4,8 @@ seed: 42
 
 data:
   sources:
-    - /home/unaxetxebe/datasources/road traffic.v1i.coco/train
-    - /home/unaxetxebe/datasources/sign language.v2-release.coco/train
+    - /home/unaxetxebe/data/datasources/road traffic.v1i.coco/train
+    - /home/unaxetxebe/data/datasources/sign language.v2-release.coco/train
   training-dataset-path: /home/unaxetxebe/data/training_dataset
 
 preprocess:

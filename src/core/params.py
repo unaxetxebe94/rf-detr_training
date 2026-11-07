@@ -40,10 +40,9 @@ class TrainConfig:
     epochs: int
     weight_decay: float
     tensorboard: bool
-    project: str
 
 
-def read_params(path: str = r"../params.yaml"):
+def read_params(path: str = r"./params.yaml"):
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 

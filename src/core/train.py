@@ -1,7 +1,7 @@
 import sys
 import json
-import time
 import logging
+import datetime
 from pathlib import Path
 
 from rfdetr.config import TrainConfig as RFDETRTrainConfig
@@ -9,10 +9,10 @@ from rfdetr.config import RFDETRBaseConfig, RFDETRMediumConfig, RFDETRNanoConfig
 from rfdetr import RFDETR, RFDETRLarge, RFDETRMedium, RFDETRNano, RFDETRSmall
 from rfdetr.training import RFDETRModelModule, RFDETRDataModule, build_trainer
 
-from core.seed import set_seed
-from core.logger import get_logger
-from core.mlflow import get_mlflow_logger
-from core.params import TrainConfig, get_global_config, get_data_config, get_train_config, get_preprocess_config
+from .seed import set_seed
+from .logger import get_logger
+from .mlflow import get_mlflow_logger
+from .params import TrainConfig, get_global_config, get_data_config, get_train_config, get_preprocess_config
 
 
 MODELS = {
@@ -57,7 +57,6 @@ def get_rfdetr_train_cfg(dataset_dir: Path, output_dir: Path, training_params: T
         epochs=training_params.epochs,
         weight_decay=training_params.weight_decay,
         tensorboard=training_params.tensorboard,
-        project=training_params.project,
         mlflow=False
     )
 
@@ -72,7 +71,7 @@ def main():
 
     model_type = global_cfg.model_type
     dataset_dir = Path(data_cfg.training_dataset_path)
-    output_dir = Path("trainings", time.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    output_dir = Path("trainings", datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
 
     _, model_config = get_model_and_config(model_type, dataset_dir)
 

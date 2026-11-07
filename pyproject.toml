@@ -42,6 +42,7 @@ dependencies = [
     "wandb>=0.18",
     "mlflow>=3.18.0",
     "pytorch-lightning>=2.6.6",
+    "faster-coco-eval>=1.8.0",
 ]
 
 # Grupo de dependencias de desarrollo. Se instala con `uv sync` por defecto

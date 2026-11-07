@@ -4,7 +4,7 @@ import logging
 import torch
 import numpy as np
 
-from core.logger import get_logger
+from .logger import get_logger
 
 
 logger = get_logger(__name__, level=logging.DEBUG)

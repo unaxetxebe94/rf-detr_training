@@ -7,6 +7,5 @@ if os.name == "nt" and vips_bin.is_dir():
 
 import pyvips
 
-
 def open_image(path):
     return pyvips.Image.new_from_file(path, access="random")

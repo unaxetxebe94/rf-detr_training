@@ -5,8 +5,8 @@ import shutil
 import sys
 from pathlib import Path
 
-from core.logger import get_logger
-from core.params import get_data_config
+from .logger import get_logger
+from .params import get_data_config
 
 logger = get_logger(__name__, level=logging.DEBUG)
 

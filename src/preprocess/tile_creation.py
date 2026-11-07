@@ -1,9 +1,9 @@
 import gc
 import random
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
+from concurrent.futures import ThreadPoolExecutor
 
 from ..core.params import get_global_config, get_preprocess_config
 from .annotations import (
@@ -40,6 +40,18 @@ def _process_image(
             gc.collect()
 
 
+def _resize_scale(img, tile_size: int, resize: float) -> float:
+    """Factor de escala de pyvips (`Image.resize(scale)`).
+
+    Si la imagen es menor que el tamaño de tile en alguna dimensión, se amplifica
+    hasta que ambas dimensiones alcancen el tile; si no, se aplica el `resize`
+    global. El mismo factor se usa para escalar las anotaciones.
+    """
+    if img.height < tile_size or img.width < tile_size:
+        return max(tile_size / img.width, tile_size / img.height)
+    return resize
+
+
 def _process_image_inner(
     img_info, raw_anns, input_dir, output_dir, tile_size, cfg,
     save_empty, save_source_image,
@@ -71,14 +83,15 @@ def _process_image_inner(
     roi = detect_roi(str(img_path), orig_w, orig_h) if cfg.apply_roi else None
     if roi is not None:
         img = img.crop(roi.x, roi.y, roi.w, roi.h)
-    if cfg.resize != 1.0:
-        img = img.resize(cfg.resize)
-    transformed_anns = transform_annotations(raw_anns, roi, cfg.resize)
+    scale = _resize_scale(img, tile_size, cfg.resize)
+    if scale != 1.0:
+        img = img.resize(scale)
+    transformed_anns = transform_annotations(raw_anns, roi, scale)
     geometries, ann_map, tree = build_geometry_index(transformed_anns)
     images, annotations = [], []
     image_id = ann_id = 1
-    origin_x = roi.x * cfg.resize if roi else 0
-    origin_y = roi.y * cfg.resize if roi else 0
+    origin_x = roi.x * scale if roi else 0
+    origin_y = roi.y * scale if roi else 0
     xs = sorted({min(x, max(0, img.width - tile_size))
                  for x in range(0, img.width, tile_size)})
     ys = sorted({min(y, max(0, img.height - tile_size))

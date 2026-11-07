@@ -7,12 +7,13 @@ os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 import re
 import mlflow
 from mlflow import ActiveRun
+from mlflow.entities import Experiment
 import datetime
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pytorch_lightning.loggers import MLFlowLogger
 
-from core.params import get_global_config, get_preprocess_config
+from .params import get_global_config, get_preprocess_config
 
 _MLFLOW_DIR = "./mlflow"
 MLFLOW_TRACKING_URI = f"file:{_MLFLOW_DIR}"
@@ -24,6 +25,7 @@ _INVALID_KEY_CHARS = re.compile(r"[^\w/. \-]", re.UNICODE)
 class MLFlowConfig:
     uri: str
     experiment_name: str
+    experiment: Experiment
     run_id: str
     run_name: str
     active_run: ActiveRun
@@ -35,13 +37,14 @@ def initialize_mlflow():
     global_cfg = get_global_config()
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    mlflow.set_experiment(global_cfg.experiment_name)
+    experiment = mlflow.set_experiment(global_cfg.experiment_name)
     run = mlflow.start_run()
 
 
     _MLFLOW_CFG = MLFlowConfig(
         uri=MLFLOW_TRACKING_URI,
         experiment_name=global_cfg.experiment_name,
+        experiment=experiment,
         run_id=run.info.run_id,
         run_name=run.info.run_name,
         active_run=run
@@ -124,3 +127,12 @@ def log_dict_params(params: Mapping[str, object], prefix: str = "") -> None:
         )
         for key, value in params.items()
     })
+
+
+def stop_mlflow(status: str = "FINISHED") -> None:
+    active_run = mlflow.active_run()
+
+    if active_run is not None:
+        mlflow.end_run(status=status)
+
+    _MLFLOW_CFG = None

@@ -65,7 +65,7 @@ invoke_stage () {
 
   write_step "Etapa: $stage_name"
 
-  uv run --no-capture-output python -u "$script" "$@"
+  uv run python -u "$script" "$@"
   local exit_code=$?
 
   if [ "$exit_code" -ne 0 ]; then
