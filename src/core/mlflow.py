@@ -34,12 +34,12 @@ _MLFLOW_CFG: MLFlowConfig | None = None
 
 
 def initialize_mlflow():
+    global _MLFLOW_CFG
     global_cfg = get_global_config()
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     experiment = mlflow.set_experiment(global_cfg.experiment_name)
     run = mlflow.start_run()
-
 
     _MLFLOW_CFG = MLFlowConfig(
         uri=MLFLOW_TRACKING_URI,
@@ -76,6 +76,9 @@ def get_run_name() -> str:
 
 
 def get_mlflow_logger() -> MLFlowLogger:
+    if _MLFLOW_CFG is None:
+        # Permite lanzar el entrenamiento sin pasar por initialize_mlflow().
+        initialize_mlflow()
     return MLFlowLogger(
         experiment_name=_MLFLOW_CFG.experiment_name,
         run_name=_MLFLOW_CFG.run_name,
@@ -130,6 +133,7 @@ def log_dict_params(params: Mapping[str, object], prefix: str = "") -> None:
 
 
 def stop_mlflow(status: str = "FINISHED") -> None:
+    global _MLFLOW_CFG
     active_run = mlflow.active_run()
 
     if active_run is not None:

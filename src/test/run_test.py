@@ -3,6 +3,7 @@ import json
 import argparse
 from math import isclose
 from pathlib import Path
+from datetime import datetime
 from uuid import NAMESPACE_URL, uuid5
 
 import cv2
@@ -312,6 +313,26 @@ def _confidence_threshold(value):
     return threshold
 
 
+def get_latest_model_weights() -> str:
+    training_dir = Path("trainings")
+    latest_date = datetime(1, 1, 1)  # Lower bound: 1 de enero del año 1
+    latest_model = Path()
+    for file in training_dir.iterdir():
+        if file.is_dir():
+            try:
+                date = datetime.strptime(file.name[:19], "%Y-%m-%d_%H-%M-%S")
+            except ValueError:
+                print(f"Hay un directorio que no tiene formato de fecha: {file.name}")
+                date = datetime(1, 1, 1)
+                continue
+            if latest_date is None or date > latest_date:
+                latest_date = date
+                latest_model = training_dir / file.name / "checkpoint_best_total.pth"
+    if not latest_model.exists():
+        raise FileNotFoundError(f"No existe el fichero checkpoint_best_total en el entrenamiento más reciente: {latest_model}")
+    return str(latest_model)
+
+
 def run_test(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluacion por tile y por puerta.")
     parser.add_argument("--weights", type=Path, default=PRETRAIN_WEIGHTS)
@@ -334,7 +355,7 @@ def run_test(argv: list[str] | None = None) -> int:
         "nano": RFDETRNano, "small": RFDETRSmall,
         "medium": RFDETRMedium, "large": RFDETRLarge,
     }
-    model = models[cfg.model_type](pretrain_weights=str(args.weights))
+    model = models[cfg.model_type](pretrain_weights=get_latest_model_weights())
     train_annotations = args.train_annotations
     snapshot = args.weights.parent / "training_categories.json"
     if train_annotations is None and snapshot.is_file():

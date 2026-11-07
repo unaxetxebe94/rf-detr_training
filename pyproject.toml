@@ -26,7 +26,7 @@ dependencies = [
     "numpy>=1.26",
     # Deep learning
     "torch>=2.4",
-    "rfdetr>=1.0.0",
+    "rfdetr[loggers,train]>=1.0.0",
     # Imágenes
     "pillow>=10.4",
     # pyvips[binary] incluye la librería nativa libvips en el wheel

@@ -10,9 +10,9 @@ from ..test.run_test import run_test
 def main():
     try:
         initialize_mlflow()
-        run_preprocess()
-        run_dataset_fusion()
-        train()
+        # run_preprocess()
+        # run_dataset_fusion()
+        # train()
         run_test()
     except Exception:
         print("Error ejecutando el pipeline")

@@ -24,6 +24,6 @@ train:
   lr_encoder: 0.00015
   batch_size: 4
   grad_accum_steps: 6
-  epochs: 15
+  epochs: 3
   weight_decay: 1e-4
   tensorboard: true
