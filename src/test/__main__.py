@@ -11,6 +11,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.test"
 
+from ..core.mlflow import ensure_test_run, log_dict_metrics, log_dict_params
 from ..core.params import get_data_config, get_global_config
 from ..preprocess.annotations import group_annotations_by_image, read_annotations
 from .drawing import render_image
@@ -267,10 +268,38 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
     results["image_metrics"], results["image_detection_metrics"] = evaluate_images(
         coco, filtered_predictions, test_dir, output_dir / "doors", IOU_THRESHOLD
     )
+    _log_results_to_mlflow(results)
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     print(json.dumps(results, indent=2))
     return results
+
+
+def _log_results_to_mlflow(results: dict) -> str:
+    """Loggea en MLflow todo lo calculado en el test: métricas por tile,
+    métricas por imagen original (puerta) y los parámetros del test."""
+    run_id = ensure_test_run()
+
+    # Métricas a nivel de tile (los valores no-dict de results).
+    tile_metrics = {
+        key: value for key, value in results.items()
+        if not isinstance(value, (dict, list))
+    }
+    log_dict_metrics(tile_metrics, prefix="tile/")
+    # Métricas a nivel de imagen original (puerta): binarias y de detección.
+    if "image_metrics" in results:
+        log_dict_metrics(results["image_metrics"], prefix="image/binary/")
+    if "image_detection_metrics" in results:
+        log_dict_metrics(results["image_detection_metrics"], prefix="image/detection/")
+
+    # Parámetros del test (umbrales y calibración), sin artefactos.
+    if "threshold_calibration" in results:
+        log_dict_params(results["threshold_calibration"], prefix="calibration/")
+    if "per_class_thresholds" in results:
+        log_dict_params(results["per_class_thresholds"], prefix="threshold/")
+    if "category_id_to_name" in results:
+        log_dict_params({"category_id_to_name": results["category_id_to_name"]})
+    return run_id
 
 
 def _confidence_threshold(value):
@@ -297,6 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     cfg = get_global_config()
     data_cfg = get_data_config()
+    run_id = ensure_test_run()
+    print(f"Run de MLflow para el test: {run_id}")
     from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRNano, RFDETRSmall
 
     models = {

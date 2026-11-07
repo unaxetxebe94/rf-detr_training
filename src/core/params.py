@@ -12,7 +12,7 @@ class DataConfig:
 
 @dataclass
 class GlobalConfig:
-    task_name: str
+    experiment_name: str
     model_type: str
     seed: int
 
@@ -40,12 +40,7 @@ class TrainConfig:
     epochs: int
     weight_decay: float
     tensorboard: bool
-    wandb: bool
     project: str
-    mlflow: bool
-    clearml: bool
-    run_test: bool
-    eval_max_dets: int
 
 
 def read_params(path: str = r"../params.yaml"):
@@ -58,7 +53,7 @@ def get_global_config():
     values = params.get("global", params)
     values = {key.replace("-", "_"): value for key, value in values.items()}
     return GlobalConfig(
-        task_name=values["task_name"],
+        experiment_name=values["experiment_name"],
         model_type=values["model_type"].lower(),
         seed=values["seed"],
     )

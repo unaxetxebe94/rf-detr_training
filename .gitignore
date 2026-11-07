@@ -35,3 +35,7 @@ test_*
 !tests/test_*.py
 
 *.zip
+
+# mlflow
+mlflow/
+*.db

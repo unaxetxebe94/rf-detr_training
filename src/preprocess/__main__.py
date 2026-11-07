@@ -7,6 +7,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.preprocess"
 
+from ..core.seed import set_seed
 from ..core.params import get_data_config, get_global_config, get_preprocess_config
 from .annotations import read_annotations
 
@@ -35,10 +36,10 @@ def _process_single_source(input_dir: Path, output_dir: Path, cfg) -> None:
     print(f"Preprocesado completado: {output_dir}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main():
     data_cfg = get_data_config()
     cfg = get_preprocess_config()
-    random.seed(get_global_config().seed)
+    set_seed(get_global_config().seed)
 
     input_dirs = data_cfg.sources
     output_dirs = []

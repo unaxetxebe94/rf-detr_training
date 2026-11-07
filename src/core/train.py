@@ -1,72 +1,91 @@
+import sys
 import json
+import time
 import logging
-from datetime import datetime
 from pathlib import Path
 
-from rfdetr import RFDETRLarge, RFDETRMedium, RFDETRNano, RFDETRSmall
+from rfdetr.config import TrainConfig as RFDETRTrainConfig
+from rfdetr.config import RFDETRBaseConfig, RFDETRMediumConfig, RFDETRNanoConfig, RFDETRSmallConfig, RFDETRLargeConfig
+from rfdetr import RFDETR, RFDETRLarge, RFDETRMedium, RFDETRNano, RFDETRSmall
+from rfdetr.training import RFDETRModelModule, RFDETRDataModule, build_trainer
 
+from core.seed import set_seed
 from core.logger import get_logger
-from core.utils import read_params, set_seed
+from core.mlflow import get_mlflow_logger
+from core.params import TrainConfig, get_global_config, get_data_config, get_train_config, get_preprocess_config
 
-if __name__ == "__main__":
+
+MODELS = {
+    "nano": RFDETRNano,
+    "small": RFDETRSmall,
+    "medium": RFDETRMedium,
+    "large": RFDETRLarge
+}
+
+MODEL_CONFIGS = {
+    "nano": RFDETRNanoConfig,
+    "small": RFDETRSmallConfig,
+    "medium": RFDETRMediumConfig,
+    "large": RFDETRLargeConfig
+}
+
+
+def get_num_classes(dataset_dir: Path) -> int:
+    anns_file = dataset_dir / "train" / "_annotations.coco.json"
+    if not anns_file.exists():
+        raise FileNotFoundError(f"No se encontró el archivo 'classes.json' en {dataset_dir}")
+    with open(anns_file, 'r') as f:
+        anns = json.load(f)
+    return len(anns["categories"])
+
+
+def get_model_and_config(model_type: str, dataset_dir: Path) -> tuple[RFDETR, RFDETRBaseConfig]:
+    model_type = model_type.lower()
+    if model_type not in MODELS:
+        raise ValueError(f"Tipo de modelo desconocido: {model_type}. Opciones válidas: {list(MODELS.keys())}")
+    return MODELS[model_type](), MODEL_CONFIGS[model_type](num_classes=get_num_classes(dataset_dir))
+
+
+def get_rfdetr_train_cfg(dataset_dir: Path, output_dir: Path, training_params: TrainConfig) -> RFDETRTrainConfig:
+    return RFDETRTrainConfig(
+        dataset_dir=str(dataset_dir),
+        output_dir=str(output_dir),
+        lr=training_params.lr,
+        lr_encoder=training_params.lr_encoder,
+        batch_size=training_params.batch_size,
+        grad_accum_steps=training_params.grad_accum_steps,
+        epochs=training_params.epochs,
+        weight_decay=training_params.weight_decay,
+        tensorboard=training_params.tensorboard,
+        project=training_params.project,
+        mlflow=False
+    )
+
+
+def main():
     logger = get_logger(__name__, level=logging.DEBUG)
 
-    # 1. Carga segura
-    params = read_params()
-    set_seed(params["seed"])
+    global_cfg = get_global_config()
+    data_cfg = get_data_config()
+    train_cfg = get_train_config()
+    set_seed(global_cfg.seed)
 
-    tp = params["train"]  # training parameters
-    model_type = params["model-type"]
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        pp = params["preprocess"]  # preprocess parameters
-        run_name = (
-            f"[{now}]-saving_prob={pp['saving-prob']}-resize={pp['resize']}"
-            f"-apply_roi={pp['apply-roi']}-train_ratio={pp['train-ratio']}"
-            f"-test_ratio={pp['test-ratio']}-val_ratio={pp['val-ratio']}"
-            f"-augmentations_per_image={pp['augmentations-per-image']}"
-            f"-max_transformations_per_sample={pp['max-transforms-per-sample']}"
-        )
-    except KeyError as ke:
-        print(f"Error al leer el preprocesado: {ke}")
-        print("Se asume que se está entrenando desde Collab")
-        run_name = f"[{now}]-CollabTraining"
+    model_type = global_cfg.model_type
+    dataset_dir = Path(data_cfg.training_dataset_path)
+    output_dir = Path("trainings", time.now().strftime("%Y-%m-%d_%H-%M-%S"))
 
-    # Accedemos a las rutas desde 'tp'
-    dataset_dir = Path(params["data"]["training-dataset-path"])
-    output_dir = Path("trainings", "training")
-    # SelecciÃ³n de modelo
-    models = {
-        "nano": RFDETRNano,
-        "small": RFDETRSmall,
-        "medium": RFDETRMedium,
-        "large": RFDETRLarge
-    }
-    model = models[str.lower(model_type)]()
-    logger.debug(f"Se ha iniciado un modelo {model_type}")
+    _, model_config = get_model_and_config(model_type, dataset_dir)
 
-    # 2. Entrenamiento con las llaves corregidas
-    model.train(
-        lr = tp["lr"],
-        lr_encoder = tp["lr_encoder"],
-        batch_size = tp["batch_size"],
-        grad_accum_steps = tp["grad_accum_steps"],
-        epochs = tp["epochs"],
-        dataset_dir = str(dataset_dir),
-        output_dir = str(output_dir),
-        weight_decay = tp["weight_decay"],
-        tensorboard = tp["tensorboard"],
-        wandb = tp["wandb"],
-        project = tp["project"],
-        run = run_name,
-        mlflow = tp["mlflow"],
-        clearml = tp["clearml"],
-        run_test = tp["run_test"],
-        eval_max_dets = tp["eval_max_dets"] ,
-        seed=params["seed"]
-    )
+    rfdetr_train_cfg = get_rfdetr_train_cfg(dataset_dir, output_dir, train_cfg)
+    trainer = build_trainer(rfdetr_train_cfg, model_config) 
+    trainer.loggers.append(get_mlflow_logger())  
+
+    module = RFDETRModelModule(model_config, rfdetr_train_cfg)
+    data_module = RFDETRDataModule(model_config, rfdetr_train_cfg)
+
+    trainer.fit(module, data_module)
     logger.info("Se ha entrenado el modelo")
-    with open(dataset_dir / "train" / "_annotations.coco.json", encoding="utf-8") as f:
-        categories = json.load(f)["categories"]
-    with open(output_dir / "training_categories.json", "w", encoding="utf-8") as f:
-        json.dump({"categories": categories}, f, ensure_ascii=False, indent=2)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

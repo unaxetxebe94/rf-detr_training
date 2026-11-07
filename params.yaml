@@ -1,18 +1,18 @@
-task-name: test_bottom
+experiment-name: test
 model-type: large
 seed: 42
 
 data:
   sources:
-    - D:\Images for multiverse\Bottom  
-    - \\10.139.140.20\Bottom
-  training-dataset-path: D:\training_dataset_rfdetr
+    - /home/unaxetxebe/datasources/road traffic.v1i.coco/train
+    - /home/unaxetxebe/datasources/sign language.v2-release.coco/train
+  training-dataset-path: /home/unaxetxebe/data/training_dataset
 
 preprocess:
   saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33
-  apply-roi: true
+  apply-roi: false
   train-ratio: 0.7
   test-ratio: 0.15
   val-ratio: 0.15
@@ -27,9 +27,3 @@ train:
   epochs: 15
   weight_decay: 1e-4
   tensorboard: true
-  wandb: false
-  project: frontalfa
-  mlflow: false
-  clearml: false
-  run_test: true
-  eval_max_dets: 300

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from core.logger import get_logger
 from core.params import get_data_config
-from core.utils import save_mapping
 
 logger = get_logger(__name__, level=logging.DEBUG)
 
@@ -227,9 +226,6 @@ def main():
         dataset_paths=dataset_paths,
         output_path=data_cfg.training_dataset_path
     )
-
-    # Guardamos un mapping de cat_id --> cat_name para el test
-    save_mapping()
 
     logger.debug("Se ha terminado la fusión de datasets")
     return 0
