@@ -46,21 +46,21 @@ def get_latest_model_weights() -> str:
     latest_date = datetime(1, 1, 1)
     latest_model = None
     if not training_dir.is_dir():
-        raise FileNotFoundError(f"No existe el directorio de entrenamientos: {training_dir}")
+        raise FileNotFoundError(f"Training directory not found: {training_dir}")
     for directory in training_dir.iterdir():
         if not directory.is_dir():
             continue
         try:
             date = datetime.strptime(directory.name[:19], "%Y-%m-%d_%H-%M-%S")
         except ValueError:
-            print(f"Hay un directorio que no tiene formato de fecha: {directory.name}")
+            print(f"Skipping directory without a date-formatted name: {directory.name}")
             continue
         if date > latest_date:
             latest_date = date
             latest_model = directory / "checkpoint_best_total.pth"
     if latest_model is None or not latest_model.is_file():
         raise FileNotFoundError(
-            f"No existe el fichero checkpoint_best_total en el entrenamiento más reciente: {latest_model}"
+            f"Best-total checkpoint not found in the latest training directory: {latest_model}"
         )
     return str(latest_model)
 

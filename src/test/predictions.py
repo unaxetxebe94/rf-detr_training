@@ -21,7 +21,7 @@ def predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
             )
             if int(label) + 1 in allowed_labels
         ]
-        print(f"{image['file_name']}: {len(raw_predictions[image['id']])} detecciones.")
+        print(f"{image['file_name']}: {len(raw_predictions[image['id']])} detections.")
     return raw_predictions
 
 

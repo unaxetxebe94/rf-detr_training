@@ -9,20 +9,20 @@ from .matching import match_predictions
 from .metrics import binary_metrics, detection_metrics
 
 
-def door_evaluation_unavailable(coco, test_dir):
+def door_evaluation_unavailable(coco, test_dir, require_image_files=True):
     sources = coco.get("source_images", [])
     if not sources:
-        return "El dataset no contiene imagenes completas (source_images)."
+        return "The dataset has no original-image metadata (source_images)."
     required = ("id", "file_name", "original_file_name", "annotations", "has_defects", "width", "height")
     for source in sources:
         if any(key not in source for key in required):
-            return f"Faltan metadatos de la imagen completa {source.get('id', 'sin id')}."
-        if not (test_dir / source["file_name"]).is_file():
-            return f"Falta el archivo de imagen completa {source['file_name']}."
+            return f"Original-image metadata is incomplete for {source.get('id', 'unknown ID')}."
+        if require_image_files and not (test_dir / source["file_name"]).is_file():
+            return f"Original-image file not found: {source['file_name']}."
     source_ids = {source["id"] for source in sources}
     for tile in coco["images"]:
         if tile.get("source_image_id") not in source_ids or tile.get("tile_origin") is None:
-            return f"Falta el origen del tile {tile['file_name']}."
+            return f"Missing source image or tile origin for {tile['file_name']}."
     return None
 
 
@@ -48,13 +48,13 @@ def reconstruct_predictions(coco, predictions_by_tile):
     sources = {source["id"]: source for source in coco.get("source_images", [])}
     if not sources:
         raise ValueError(
-            "El dataset no contiene imagenes completas. Vuelve a ejecutar el preprocesado."
+            "The dataset has no original-image metadata. Run preprocessing again."
         )
     grouped = defaultdict(list)
     for tile in coco["images"]:
         source_id = tile.get("source_image_id")
         if source_id not in sources or "tile_origin" not in tile:
-            raise ValueError(f"Falta el origen del tile {tile['file_name']}.")
+            raise ValueError(f"Missing source image or tile origin for {tile['file_name']}.")
         offset_x, offset_y = tile["tile_origin"]
         for box, label, score in predictions_by_tile.get(tile["id"], []):
             x, y, width, height = box

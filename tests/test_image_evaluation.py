@@ -754,9 +754,9 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(metrics["F1-Score"], 0.0)
 
     def test_legacy_or_incomplete_tile_metadata_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "preprocesado"):
+        with self.assertRaisesRegex(ValueError, "preprocessing"):
             reconstruct_predictions({"images": []}, {})
-        with self.assertRaisesRegex(ValueError, "origen"):
+        with self.assertRaisesRegex(ValueError, "origin"):
             reconstruct_predictions({
                 "source_images": [{"id": "door"}],
                 "images": [{"id": 1, "file_name": "tile.png"}],

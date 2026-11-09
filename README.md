@@ -168,3 +168,50 @@ Las imágenes completas anotadas, con GT y predicciones lado a lado, se guardan 
 Si faltan `source_images`, metadatos de reconstrucción o archivos de imágenes completas, el test avisa y evalúa **solo los tiles**, sin consultar los originales ni exigir repetir el preprocesado. Se mantienen la calibración sobre `valid`, las métricas y las carpetas por tile. `evaluation_scope` indica `tiles` y `door_evaluation_skip_reason` explica la omisión; no se generan `image_metrics`, `image_detection_metrics` ni métricas por puerta en MLflow. Una carpeta `doors` de una ejecución anterior no representa ese nuevo test y no se borra automáticamente.
 
 Con datos completos, `evaluation_scope` es `tiles_and_doors` y se conserva la evaluación por puerta. Los errores de categorías, anotaciones corruptas, tiles ausentes o inferencia no se ocultan mediante este fallback. Regenerar los datasets antiguos solo es necesario si se quieren obtener también resultados por puerta.
+
+### FP/FN confidence trade-off charts
+
+Run from the repository root:
+
+```powershell
+uv run python -m src.scripts.plot_confidence_tradeoff
+```
+
+The script uses the model type from `params.yaml`, the latest dated training checkpoint, and the configured dataset's `valid` and `test` splits. It does not train, change parameters, or create MLflow runs. To select a checkpoint and output directory explicitly:
+
+```powershell
+uv run python -m src.scripts.plot_confidence_tradeoff `
+    --weights trainings\2026-11-09_14-30-11\checkpoint_best_total.pth `
+    --output-dir charts\confidence_tradeoff `
+    --step 0.01
+```
+
+Additional options are `--dataset-dir`, `--train-annotations`, `--level {tiles,images,all}`, and repeatable `--original-data-dir`. Training categories come from the snapshot next to the checkpoint when available, and their order is checked against the model. COCO grouping metadata (`supercategory: none`) is not treated as a defect class.
+
+The baseline is calibrated **only on validation tiles**, using the same F1 comparison between global and per-class thresholds as the regular test. All charts share that baseline: it is not independently optimized for original-image detection or binary decisions. The same offset is added to every class threshold, decreasing until the first class reaches **0**, and increasing until the first reaches **1**. The baseline and exact endpoints are always included. For example, baseline thresholds `[0.2, 0.8]` produce endpoints `[0, 0.6]` and `[0.4, 1]`.
+
+The horizontal axis shows **percentage-point changes**, not absolute thresholds: 0 means the baseline, and -5 subtracts 0.05 from every class threshold. Each chart shows the full sweep and a +/-10-point detail around the baseline. The default step is 0.01 (1 percentage point). Inference runs only once per validation/test tile with a minimum confidence of 0; all curves reuse those predictions, subject to the model's detection-count limit.
+
+The default `--level all` exports the tile chart and both original-image charts when metadata is available:
+
+| Output location under `DATASET\test_output\confidence_tradeoff` | Counting unit |
+| --- | --- |
+| Root directory | Detection errors per tile, not unique physical defects or rejected images. |
+| `original_image_detection` | Detection errors against original-image boxes, after reconstructing tile coordinates and applying per-class NMS at IoU 0.5. |
+| `original_image_binary` | Accept/reject decisions per original image: FP = defect-free images rejected; FN = defective images accepted. |
+
+Each location contains `confidence_tradeoff.png` for sharing, `.svg` for vector presentations, `.csv` with counts and class thresholds, and `.json` with calibration, checkpoint, dataset and sweep metadata. Binary CSV/JSON reports also include TN.
+
+Detection charts use class-aware matching at IoU 0.3; a wrong class counts as both FP and FN. Binary decisions follow the regular image evaluation: **any** retained defect prediction rejects the image, without class or IoU matching. An image is defective if its aligned ground-truth annotations contain at least one trained defect class. Overlapping tile detections are suppressed per class before original-image matching; raw inference and reconstruction are shared across the sweep.
+
+Original-image charts require `source_images` ground-truth metadata and every tile's `source_image_id` and `tile_origin`. Full-image pixel files are not needed because the script does not render those images. Original categories are aligned using the configured `data.sources` COCO files; use repeated `--original-data-dir` arguments to override them. Invalid or ambiguous category mappings still raise an error.
+
+If metadata is absent or incomplete, `--level all` prints an English warning, records the skip reason in the tile JSON, and exports only tile curves. `--level images` instead fails explicitly, without substituting tile results for image results:
+
+```powershell
+uv run python -m src.scripts.plot_confidence_tradeoff --level images
+```
+
+Use `--level tiles` to request only tile curves. Only requested/available reports are updated; files from earlier runs are not deleted automatically.
+
+These charts show the sample size and baseline counts, not monetary costs. Choosing a threshold from the curves uses `test` as a decision set; an independent sample is needed for a final unbiased assessment. Synthetic tests cover reconstruction, NMS, category alignment and binary decisions; real-image validation requires a dataset containing original-image metadata.
