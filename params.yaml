@@ -1,18 +1,17 @@
-experiment-name: test
+experiment-name: right
 model-type: large
 seed: 42
 
 data:
   sources:
-    - /home/unaxetxebe/data/datasources/road traffic.v1i.coco/train
-    - /home/unaxetxebe/data/datasources/sign language.v2-release.coco/train
-  training-dataset-path: /home/unaxetxebe/data/training_dataset
+    - D:\Images for multiverse\Right
+  training-dataset-path: C:\Users\u.etxeberria\Desktop\datasets\training_dataset
 
 preprocess:
   saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33
-  apply-roi: false
+  apply-roi: true
   train-ratio: 0.7
   test-ratio: 0.15
   val-ratio: 0.15

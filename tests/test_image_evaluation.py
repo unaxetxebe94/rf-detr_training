@@ -2,7 +2,7 @@ import copy
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -14,12 +14,6 @@ from PIL import Image
 
 from core.fuse_datasets import _fuse_datasets as fuse_datasets
 from src.preprocess.annotations import read_annotations, write_annotations
-from src.test.__main__ import (
-    _align_categories,
-    _align_door_categories,
-    evaluate_dataset,
-    main,
-)
 from src.test.image_evaluation import (
     door_bucket,
     evaluate_images,
@@ -27,11 +21,24 @@ from src.test.image_evaluation import (
 )
 from src.test.matching import match_predictions
 from src.test.metrics import binary_metrics, compute_map, detection_metrics
+from src.test.run_test import (
+    _align_categories,
+    _align_door_categories,
+    evaluate_dataset,
+)
+from src.test.run_test import (
+    run_test as main,
+)
 from src.test.thresholds import find_optimal_thresholds, select_thresholds
 
 
 class ImageEvaluationTests(unittest.TestCase):
     def setUp(self):
+        self.addCleanup(patch.stopall)
+        patch("src.test.run_test._log_results_to_mlflow").start()
+        patch("src.test.run_test.mlflow_run", side_effect=lambda stage: nullcontext()).start()
+        patch("src.test.run_test.ensure_test_run", return_value="test-run").start()
+        patch("src.test.run_test.log_dict_params").start()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -214,6 +221,53 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(result["F1-Score"], 1.0)
         self.assertEqual(result["image_metrics"]["Total TN"], 2)
 
+    def test_tiles_only_when_complete_images_or_metadata_are_unavailable(self):
+        test_dir = self.root / "test"
+        original = self.make_dataset(test_dir)
+        for case in ("absent", "empty", "origin", "null_origin", "reference", "source_metadata", "source_id", "file"):
+            with self.subTest(case=case):
+                coco = copy.deepcopy(original)
+                if case == "absent":
+                    del coco["source_images"]
+                elif case == "empty":
+                    coco["source_images"] = []
+                elif case == "origin":
+                    del coco["images"][0]["tile_origin"]
+                elif case == "null_origin":
+                    coco["images"][0]["tile_origin"] = None
+                elif case == "reference":
+                    coco["images"][0]["source_image_id"] = "missing"
+                elif case == "source_metadata":
+                    del coco["source_images"][0]["annotations"]
+                elif case == "source_id":
+                    del coco["source_images"][0]["id"]
+                else:
+                    coco["source_images"][0]["file_name"] = "missing.png"
+                write_annotations(test_dir / "_annotations.coco.json", coco)
+                model = SimpleNamespace(predict=Mock(return_value=SimpleNamespace(
+                    xyxy=[], class_id=[], confidence=[],
+                )))
+                output = self.root / case
+                with patch("src.test.run_test._align_door_categories") as align:
+                    with patch("src.test.run_test.evaluate_images") as doors:
+                        with redirect_stdout(io.StringIO()) as stdout:
+                            result = evaluate_dataset(
+                                model, test_dir, output, global_threshold=0.5,
+                                original_data_dirs=(self.root / "unavailable-originals",),
+                            )
+                align.assert_not_called()
+                doors.assert_not_called()
+                self.assertIn("AVISO", stdout.getvalue())
+                self.assertEqual(result["evaluation_scope"], "tiles")
+                self.assertIn("door_evaluation_skip_reason", result)
+                self.assertNotIn("image_metrics", result)
+                self.assertNotIn("image_detection_metrics", result)
+                self.assertEqual(result["Total FN"], 2)
+                self.assertTrue((output / "FN" / "door0_tile0.png").is_file())
+                self.assertFalse((output / "doors").exists())
+                self.assertEqual(read_annotations(output / "metrics.json"), result)
+                self.assertEqual(read_annotations(test_dir / "_annotations.coco.json"), coco)
+
     def test_manual_global_threshold_skips_validation_and_filters_all_classes(self):
         test_dir = self.root / "test"
         coco = self.make_dataset(test_dir)
@@ -233,7 +287,7 @@ class ImageEvaluationTests(unittest.TestCase):
                         confidence=np.array([0.02]),
                     )
 
-                with patch("src.test.__main__.select_thresholds") as select:
+                with patch("src.test.run_test.select_thresholds") as select:
                     with redirect_stdout(io.StringIO()):
                         result = evaluate_dataset(
                             SimpleNamespace(predict=predict), test_dir,
@@ -262,11 +316,17 @@ class ImageEvaluationTests(unittest.TestCase):
             training_dataset_path=self.root,
         )
         with patch.dict("sys.modules", {"rfdetr": rfdetr}):
-            with patch("src.test.__main__.get_global_config", return_value=config):
+            with patch("src.test.run_test.get_global_config", return_value=config):
                 with patch(
-                    "src.test.__main__.get_data_config", return_value=data_config
+                    "src.test.run_test.get_data_config", return_value=data_config
                 ):
-                    with patch("src.test.__main__.evaluate_dataset") as evaluate:
+                    with patch("src.test.run_test.evaluate_dataset") as evaluate:
+                        default_weights = self.root / "latest.pth"
+                        default_weights.touch()
+                        patch(
+                            "src.test.run_test.get_latest_model_weights",
+                            return_value=str(default_weights),
+                        ).start()
                         for argv, expected in (([], None), (["--global-threshold", "0.35"], 0.35)):
                             self.assertEqual(main(argv), 0)
                             self.assertEqual(evaluate.call_args.kwargs["global_threshold"], expected)
@@ -275,9 +335,11 @@ class ImageEvaluationTests(unittest.TestCase):
                                 tuple(data_config.sources),
                             )
                         weights = self.root / "weights.pth"
+                        weights.touch()
                         snapshot = self.root / "training_categories.json"
                         write_annotations(snapshot, {"categories": []})
                         main(["--weights", str(weights)])
+                        model_class.assert_called_with(pretrain_weights=str(weights))
                         self.assertEqual(evaluate.call_args.kwargs["train_annotations"], snapshot)
                         original = self.root / "original.json"
                         main([

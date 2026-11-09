@@ -1,9 +1,9 @@
-import sys
-import json
 import argparse
+import json
+import sys
+from datetime import datetime
 from math import isclose
 from pathlib import Path
-from datetime import datetime
 from uuid import NAMESPACE_URL, uuid5
 
 import cv2
@@ -12,7 +12,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.test"
 
-from ..core.mlflow import ensure_test_run, log_dict_metrics, log_dict_params
+from ..core.mlflow import ensure_test_run, log_dict_metrics, log_dict_params, mlflow_run
 from ..core.params import get_data_config, get_global_config
 from ..preprocess.annotations import group_annotations_by_image, read_annotations
 from .drawing import render_image
@@ -25,7 +25,6 @@ from .thresholds import select_thresholds
 IOU_THRESHOLD = 0.3
 RAW_THRESHOLD = 0.05
 DEFAULT_THRESHOLD = 0.5
-PRETRAIN_WEIGHTS = Path("trainings") / "training" / "checkpoint_best_total.pth"
 
 
 def _align_door_categories(coco, original_data_dirs):
@@ -155,6 +154,23 @@ def _predict_dataset(model, directory, coco, raw_threshold=RAW_THRESHOLD):
     return raw_predictions
 
 
+def _door_evaluation_unavailable(coco, test_dir):
+    sources = coco.get("source_images", [])
+    if not sources:
+        return "El dataset no contiene imagenes completas (source_images)."
+    required = ("id", "file_name", "original_file_name", "annotations", "has_defects", "width", "height")
+    for source in sources:
+        if any(key not in source for key in required):
+            return f"Faltan metadatos de la imagen completa {source.get('id', 'sin id')}."
+        if not (test_dir / source["file_name"]).is_file():
+            return f"Falta el archivo de imagen completa {source['file_name']}."
+    source_ids = {source["id"] for source in sources}
+    for tile in coco["images"]:
+        if tile.get("source_image_id") not in source_ids or tile.get("tile_origin") is None:
+            return f"Falta el origen del tile {tile['file_name']}."
+    return None
+
+
 def evaluate_dataset(model, test_dir: Path, output_dir: Path,
                      valid_dir: Path | None = None,
                      global_threshold: float | None = None,
@@ -164,7 +180,15 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
         raise ValueError("Global threshold must be between 0 and 1.")
     test_dir, output_dir = Path(test_dir), Path(output_dir)
     coco = read_annotations(test_dir / "_annotations.coco.json")
-    reconstruct_predictions(coco, {})
+    door_skip_reason = _door_evaluation_unavailable(coco, test_dir)
+    if door_skip_reason is None:
+        reconstruct_predictions(coco, {})
+    else:
+        print(
+            f"AVISO: {door_skip_reason} Se evaluaran solo los tiles. "
+            "Una carpeta doors de ejecuciones anteriores no corresponde a este test."
+        )
+        coco = {**coco, "source_images": []}
     training = read_annotations(
         Path(train_annotations) if train_annotations is not None
         else test_dir.parent / "train" / "_annotations.coco.json"
@@ -181,7 +205,7 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
                 "Use --train-annotations with the original training COCO JSON. "
                 f"Checkpoint: {list(checkpoint_names)}; dataset: {training_names}"
             )
-    if original_data_dirs is not None:
+    if original_data_dirs is not None and door_skip_reason is None:
         coco = _align_door_categories(coco, original_data_dirs)
     coco = _align_categories(coco, training["categories"])
     category_names = {cat["id"]: cat["name"] for cat in coco["categories"]}
@@ -266,9 +290,13 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
         category_names.get(label, str(label)): threshold
         for label, threshold in sorted(thresholds.items())
     }
-    results["image_metrics"], results["image_detection_metrics"] = evaluate_images(
-        coco, filtered_predictions, test_dir, output_dir / "doors", IOU_THRESHOLD
-    )
+    results["evaluation_scope"] = "tiles" if door_skip_reason else "tiles_and_doors"
+    if door_skip_reason is None:
+        results["image_metrics"], results["image_detection_metrics"] = evaluate_images(
+            coco, filtered_predictions, test_dir, output_dir / "doors", IOU_THRESHOLD
+        )
+    else:
+        results["door_evaluation_skip_reason"] = door_skip_reason
     _log_results_to_mlflow(results)
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
@@ -284,9 +312,13 @@ def _log_results_to_mlflow(results: dict) -> str:
     # Métricas a nivel de tile (los valores no-dict de results).
     tile_metrics = {
         key: value for key, value in results.items()
-        if not isinstance(value, (dict, list))
+        if isinstance(value, (int, float))
     }
     log_dict_metrics(tile_metrics, prefix="tile/")
+    log_dict_params({
+        key: results[key] for key in ("evaluation_scope", "door_evaluation_skip_reason")
+        if key in results
+    })
     # Métricas a nivel de imagen original (puerta): binarias y de detección.
     if "image_metrics" in results:
         log_dict_metrics(results["image_metrics"], prefix="image/binary/")
@@ -316,7 +348,9 @@ def _confidence_threshold(value):
 def get_latest_model_weights() -> str:
     training_dir = Path("trainings")
     latest_date = datetime(1, 1, 1)  # Lower bound: 1 de enero del año 1
-    latest_model = Path()
+    latest_model = None
+    if not training_dir.is_dir():
+        raise FileNotFoundError(f"No existe el directorio de entrenamientos: {training_dir}")
     for file in training_dir.iterdir():
         if file.is_dir():
             try:
@@ -328,14 +362,19 @@ def get_latest_model_weights() -> str:
             if latest_date is None or date > latest_date:
                 latest_date = date
                 latest_model = training_dir / file.name / "checkpoint_best_total.pth"
-    if not latest_model.exists():
-        raise FileNotFoundError(f"No existe el fichero checkpoint_best_total en el entrenamiento más reciente: {latest_model}")
+    if latest_model is None or not latest_model.is_file():
+        raise FileNotFoundError(
+            f"No existe el fichero checkpoint_best_total en el entrenamiento más reciente: {latest_model}"
+        )
     return str(latest_model)
 
 
 def run_test(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluacion por tile y por puerta.")
-    parser.add_argument("--weights", type=Path, default=PRETRAIN_WEIGHTS)
+    parser.add_argument(
+        "--weights", type=Path,
+        help="Checkpoint to evaluate; defaults to the latest dated training directory.",
+    )
     parser.add_argument(
         "--train-annotations", type=Path,
         help="Original training COCO JSON defining the checkpoint's class IDs.",
@@ -345,6 +384,14 @@ def run_test(argv: list[str] | None = None) -> int:
         help="Use this confidence threshold for all classes, skipping validation calibration.",
     )
     args = parser.parse_args(argv)
+    weights = args.weights if args.weights is not None else Path(get_latest_model_weights())
+    if not weights.is_file():
+        raise FileNotFoundError(f"No existe el checkpoint: {weights}")
+    with mlflow_run("test"):
+        return _run_test(args, weights)
+
+
+def _run_test(args, weights):
     cfg = get_global_config()
     data_cfg = get_data_config()
     run_id = ensure_test_run()
@@ -355,11 +402,13 @@ def run_test(argv: list[str] | None = None) -> int:
         "nano": RFDETRNano, "small": RFDETRSmall,
         "medium": RFDETRMedium, "large": RFDETRLarge,
     }
-    model = models[cfg.model_type](pretrain_weights=get_latest_model_weights())
+    model = models[cfg.model_type](pretrain_weights=str(weights))
     train_annotations = args.train_annotations
-    snapshot = args.weights.parent / "training_categories.json"
+    snapshot = weights.parent / "training_categories.json"
     if train_annotations is None and snapshot.is_file():
         train_annotations = snapshot
+    log_dict_params({"test/checkpoint": str(weights.resolve())})
+    log_dict_params({"test/dataset_dir": str(data_cfg.training_dataset_path.resolve())})
     evaluate_dataset(
         model, data_cfg.training_dataset_path / "test",
         data_cfg.training_dataset_path / "test_output",

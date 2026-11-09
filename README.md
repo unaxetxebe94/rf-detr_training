@@ -25,7 +25,7 @@ Cualquier comando se ejecuta a través de `uv run`, que garantiza que se usa el 
 uv run pytest                  # ejecutar los tests
 uv run python -m src.test      # evaluación con ponderes: uv run python -m src.test --weights trainings/training/checkpoint_best_total.pth
 uv run python -m src.preprocess --is-master
-uv run python src/core/train.py
+uv run python -m src.core.train
 ```
 
 Para actualizar dependencias (se regenera `uv.lock` y hay que hacer commit):
@@ -37,6 +37,20 @@ uv lock --upgrade          # actualizar uv.lock a versiones más nuevas
 ```
 
 El pipeline (`run_pipeline.ps1` / `run_pipeline.sh`) ya ejecuta todas las etapas con `uv run`, así que solo hace falta tener `uv` en el PATH (en Windows: `winget install astral-sh.uv` o `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`).
+
+### MLflow
+
+El pipeline guarda experimentos y runs en el almacén de archivos `mlflow` de la raíz del proyecto. Imprime su URI absoluta y el `run_id`; el logger de entrenamiento y el test comparten esa run. Una ejecución correcta termina como `FINISHED` y un error como `FAILED`. También se registran los parámetros efectivos y las rutas del entrenamiento y del checkpoint.
+
+Abre la interfaz **desde la raíz del repositorio**, indicando ese mismo backend:
+
+```powershell
+$env:MLFLOW_ALLOW_FILE_STORE = "true"
+$trackingUri = uv run python -c "from pathlib import Path; print((Path.cwd() / 'mlflow').as_uri())"
+uv run mlflow ui --backend-store-uri "$trackingUri"
+```
+
+No uses `cd .\mlflow; uv run mlflow ui` sin backend: puede abrir una base SQLite distinta, mostrando solo `Default` o experimentos sin los runs existentes. No hace falta migrar ni borrar las bases SQLite para consultar los runs del almacén de archivos.
 
 ## Archivos importantes
 
@@ -118,6 +132,8 @@ En test, `source_images` contiene copias completas de las puertas con el mismo `
 
 Ejemplo: `python -m src.test --weights trainings\training\checkpoint_best_total.pth`.
 
+`--weights` carga exactamente ese checkpoint y busca `training_categories.json` en su mismo directorio. Sin este argumento se usa el entrenamiento más reciente con nombre de fecha. El pipeline integrado pasa directamente el checkpoint que acaba de entrenar, sin buscar otros entrenamientos.
+
 Para evaluar directamente con un umbral fijo para todas las clases: `python -m src.test --global-threshold 0.35`. Acepta valores entre 0 y 1, no lee `valid` ni busca umbrales optimos, y aplica el valor tanto a tiles como a puertas. Sin este argumento se mantiene la calibracion automatica descrita a continuacion.
 
 Los umbrales se calibran exclusivamente con los tiles de `valid`, nunca con `test`. Se comparan los umbrales independientes por clase con un umbral global, barriendo de 0.05 a 0.95 en pasos de 0.05. Gana la estrategia con mayor F1 micro de deteccion (TP/FP/FN acumulados de todas las clases, IoU 0.3); en empate se usa el umbral global. El test por tile y por puerta aplica la estrategia ganadora sin reajustarla. `threshold_calibration` en `metrics.json` guarda ambos F1 de validacion, los candidatos ganadores y la estrategia seleccionada; `per_class_thresholds` contiene los umbrales finalmente aplicados. En la estrategia por clase, las clases sin anotaciones en validacion mantienen el umbral 0.5. Se requiere un split `valid` separado, con anotaciones.
@@ -134,4 +150,6 @@ Se mantienen las métricas y carpetas por tile. En `test_output\metrics.json`, `
 
 Las imágenes completas anotadas, con GT y predicciones lado a lado, se guardan en `test_output\doors\TP`, `FP`, `FN` y `TN`. Esta clasificación es binaria: basta cualquier predicción que supere su umbral de confianza, sin exigir coincidencia de clase ni IoU con GT. Las métricas de detección sí evalúan clase y solapamiento; una clasificación incorrecta cuenta como FP y FN.
 
-Es necesario regenerar los datasets antiguos para disponer del split por puerta, las imágenes completas y sus coordenadas.
+Si faltan `source_images`, metadatos de reconstrucción o archivos de imágenes completas, el test avisa y evalúa **solo los tiles**, sin consultar los originales ni exigir repetir el preprocesado. Se mantienen la calibración sobre `valid`, las métricas y las carpetas por tile. `evaluation_scope` indica `tiles` y `door_evaluation_skip_reason` explica la omisión; no se generan `image_metrics`, `image_detection_metrics` ni métricas por puerta en MLflow. Una carpeta `doors` de una ejecución anterior no representa ese nuevo test y no se borra automáticamente.
+
+Con datos completos, `evaluation_scope` es `tiles_and_doors` y se conserva la evaluación por puerta. Los errores de categorías, anotaciones corruptas, tiles ausentes o inferencia no se ocultan mediante este fallback. Regenerar los datasets antiguos solo es necesario si se quieren obtener también resultados por puerta.

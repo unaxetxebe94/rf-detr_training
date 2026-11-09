@@ -1,22 +1,26 @@
 import json
 import os
+from contextlib import contextmanager
+from pathlib import Path
 
 # El proyecto usa el backend de ficheros (file:./mlflow); MLflow 3.18 lo exige explícito.
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
-import re
-import mlflow
-from mlflow import ActiveRun
-from mlflow.entities import Experiment
 import datetime
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+from mlflow.entities import Experiment
 from pytorch_lightning.loggers import MLFlowLogger
+
+import mlflow
+from mlflow import ActiveRun
 
 from .params import get_global_config, get_preprocess_config
 
-_MLFLOW_DIR = "./mlflow"
-MLFLOW_TRACKING_URI = f"file:{_MLFLOW_DIR}"
+_MLFLOW_DIR = Path(__file__).resolve().parents[2] / "mlflow"
+MLFLOW_TRACKING_URI = _MLFLOW_DIR.as_uri()
 
 # MLflow solo acepta en métricas y params letras, números y "_/. - ": lo demás lo reemplazamos.
 _INVALID_KEY_CHARS = re.compile(r"[^\w/. \-]", re.UNICODE)
@@ -37,9 +41,11 @@ def initialize_mlflow():
     global _MLFLOW_CFG
     global_cfg = get_global_config()
 
+    if mlflow.active_run() is not None:
+        return
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     experiment = mlflow.set_experiment(global_cfg.experiment_name)
-    run = mlflow.start_run()
+    run = mlflow.start_run(run_name=get_run_name())
 
     _MLFLOW_CFG = MLFlowConfig(
         uri=MLFLOW_TRACKING_URI,
@@ -49,9 +55,32 @@ def initialize_mlflow():
         run_name=run.info.run_name,
         active_run=run
     )
+    print(
+        f"MLflow: {MLFLOW_TRACKING_URI}; experimento={experiment.name}; "
+        f"run_id={run.info.run_id}"
+    )
 
 
-def get_mlflow_cfg() -> MLFlowConfig:
+@contextmanager
+def mlflow_run(stage: str):
+    """Close only runs created here; nested pipeline stages reuse their owner."""
+    owns_run = mlflow.active_run() is None
+    if owns_run:
+        initialize_mlflow()
+        mlflow.set_tag("stage", stage)
+    mlflow.set_tag(f"stage_{stage}", True)
+    try:
+        yield mlflow.active_run()
+    except BaseException:
+        if owns_run:
+            stop_mlflow(status="FAILED")
+        raise
+    else:
+        if owns_run:
+            stop_mlflow()
+
+
+def get_mlflow_cfg() -> MLFlowConfig | None:
     return _MLFLOW_CFG
 
 
@@ -76,14 +105,15 @@ def get_run_name() -> str:
 
 
 def get_mlflow_logger() -> MLFlowLogger:
-    if _MLFLOW_CFG is None:
-        # Permite lanzar el entrenamiento sin pasar por initialize_mlflow().
+    if mlflow.active_run() is None:
         initialize_mlflow()
+    run = mlflow.active_run()
     return MLFlowLogger(
-        experiment_name=_MLFLOW_CFG.experiment_name,
-        run_name=_MLFLOW_CFG.run_name,
-        run_id=_MLFLOW_CFG.run_id,
-        save_dir=_MLFLOW_DIR
+        experiment_name=get_global_config().experiment_name,
+        run_name=run.info.run_name,
+        run_id=run.info.run_id,
+        tracking_uri=MLFLOW_TRACKING_URI,
+        save_dir=str(_MLFLOW_DIR),
     )
 
 
@@ -95,11 +125,9 @@ def _sanitize_key(name: str) -> str:
 
 def _ensure_active_run(stage: str | None = None) -> None:
     if mlflow.active_run() is None:
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        mlflow.set_experiment(get_global_config().experiment_name)
-        mlflow.start_run()
+        initialize_mlflow()
     if stage is not None:
-        mlflow.set_tag("stage", stage)
+        mlflow.set_tag(f"stage_{stage}", True)
 
 
 def ensure_test_run() -> str:
