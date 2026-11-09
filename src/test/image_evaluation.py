@@ -9,6 +9,23 @@ from .matching import match_predictions
 from .metrics import binary_metrics, detection_metrics
 
 
+def door_evaluation_unavailable(coco, test_dir):
+    sources = coco.get("source_images", [])
+    if not sources:
+        return "El dataset no contiene imagenes completas (source_images)."
+    required = ("id", "file_name", "original_file_name", "annotations", "has_defects", "width", "height")
+    for source in sources:
+        if any(key not in source for key in required):
+            return f"Faltan metadatos de la imagen completa {source.get('id', 'sin id')}."
+        if not (test_dir / source["file_name"]).is_file():
+            return f"Falta el archivo de imagen completa {source['file_name']}."
+    source_ids = {source["id"] for source in sources}
+    for tile in coco["images"]:
+        if tile.get("source_image_id") not in source_ids or tile.get("tile_origin") is None:
+            return f"Falta el origen del tile {tile['file_name']}."
+    return None
+
+
 def door_bucket(has_defects: bool, has_predictions: bool) -> str:
     if has_defects:
         return "TP" if has_predictions else "FN"

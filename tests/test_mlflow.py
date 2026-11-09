@@ -11,7 +11,7 @@ from src.core import train
 from src.core.__main__ import main as pipeline
 from src.core.params import GlobalConfig, PreprocessConfig, TrainConfig
 from src.test import run_test as evaluation
-from src.test.run_test import _log_results_to_mlflow
+from src.test.reporting import log_results_to_mlflow
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def test_logger_and_evaluation_share_persistent_run(store, tmp_path, monkeypatch
         assert logger._tracking_uri == tracking.MLFLOW_TRACKING_URI
         logger.log_metrics({"train/loss": 1.25}, step=1)
         with tracking.mlflow_run("test"):
-            assert _log_results_to_mlflow({
+            assert log_results_to_mlflow({
                 "Total TP": 2,
                 "evaluation_scope": "tiles",
                 "door_evaluation_skip_reason": "No complete images",

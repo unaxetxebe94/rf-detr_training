@@ -14,6 +14,8 @@ from PIL import Image
 
 from core.fuse_datasets import _fuse_datasets as fuse_datasets
 from src.preprocess.annotations import read_annotations, write_annotations
+from src.test.categories import align_categories, align_door_categories
+from src.test.evaluation import evaluate_dataset
 from src.test.image_evaluation import (
     door_bucket,
     evaluate_images,
@@ -21,11 +23,6 @@ from src.test.image_evaluation import (
 )
 from src.test.matching import match_predictions
 from src.test.metrics import binary_metrics, compute_map, detection_metrics
-from src.test.run_test import (
-    _align_categories,
-    _align_door_categories,
-    evaluate_dataset,
-)
 from src.test.run_test import (
     run_test as main,
 )
@@ -35,7 +32,7 @@ from src.test.thresholds import find_optimal_thresholds, select_thresholds
 class ImageEvaluationTests(unittest.TestCase):
     def setUp(self):
         self.addCleanup(patch.stopall)
-        patch("src.test.run_test._log_results_to_mlflow").start()
+        patch("src.test.evaluation.log_results_to_mlflow").start()
         patch("src.test.run_test.mlflow_run", side_effect=lambda stage: nullcontext()).start()
         patch("src.test.run_test.ensure_test_run", return_value="test-run").start()
         patch("src.test.run_test.log_dict_params").start()
@@ -248,8 +245,8 @@ class ImageEvaluationTests(unittest.TestCase):
                     xyxy=[], class_id=[], confidence=[],
                 )))
                 output = self.root / case
-                with patch("src.test.run_test._align_door_categories") as align:
-                    with patch("src.test.run_test.evaluate_images") as doors:
+                with patch("src.test.evaluation.align_door_categories") as align:
+                    with patch("src.test.evaluation.evaluate_images") as doors:
                         with redirect_stdout(io.StringIO()) as stdout:
                             result = evaluate_dataset(
                                 model, test_dir, output, global_threshold=0.5,
@@ -287,7 +284,7 @@ class ImageEvaluationTests(unittest.TestCase):
                         confidence=np.array([0.02]),
                     )
 
-                with patch("src.test.run_test.select_thresholds") as select:
+                with patch("src.test.evaluation.select_thresholds") as select:
                     with redirect_stdout(io.StringIO()):
                         result = evaluate_dataset(
                             SimpleNamespace(predict=predict), test_dir,
@@ -387,7 +384,7 @@ class ImageEvaluationTests(unittest.TestCase):
         original = copy.deepcopy(coco)
         training = [{"id": 3, "name": "defect"}, {"id": 9, "name": "other"}]
         with redirect_stdout(io.StringIO()):
-            aligned = _align_categories(coco, training)
+            aligned = align_categories(coco, training)
         self.assertEqual(aligned["categories"], training)
         self.assertEqual([ann["category_id"] for ann in aligned["annotations"]], [3])
         self.assertEqual(
@@ -473,7 +470,7 @@ class ImageEvaluationTests(unittest.TestCase):
                 ],
             )
         original_coco = copy.deepcopy(coco)
-        aligned = _align_door_categories(coco, directories)
+        aligned = align_door_categories(coco, directories)
         self.assertEqual(
             [source["annotations"] for source in aligned["source_images"]],
             [[{"id": 10, "category_id": label, "bbox": [4, 4, 8, 8]}]
@@ -482,10 +479,10 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(aligned["categories"], coco["categories"])
         self.assertEqual(aligned["annotations"], coco["annotations"])
         self.assertEqual(coco, original_coco)
-        self.assertEqual(_align_door_categories(aligned, directories), aligned)
+        self.assertEqual(align_door_categories(aligned, directories), aligned)
         coco["source_images"][0]["id"] = "legacy"
         with self.assertRaisesRegex(ValueError, "Cannot identify original dataset"):
-            _align_door_categories(coco, directories)
+            align_door_categories(coco, directories)
 
     def test_pipeline_aligns_original_door_categories_before_detection_without_disk_changes(self):
         test_dir = self.root / "test"
@@ -542,11 +539,11 @@ class ImageEvaluationTests(unittest.TestCase):
         self.assertEqual(result["image_metrics"]["Total TN"], 2)
         self.assertEqual([path.read_bytes() for path in paths], disk_contents)
         del coco["source_images"][0]["annotations"][0]["id"]
-        aligned = _align_door_categories(coco, directories)
+        aligned = align_door_categories(coco, directories)
         self.assertEqual(aligned["source_images"][0]["annotations"][0]["category_id"], 0)
         coco["source_images"][0]["annotations"][0]["bbox"] = [50, 20, 8, 8]
         with self.assertRaisesRegex(ValueError, "Cannot uniquely align annotation"):
-            _align_door_categories(coco, directories)
+            align_door_categories(coco, directories)
 
     def test_door_alignment_handles_renumbered_annotations_without_guessing_category_ids(self):
         coco = self.make_dataset(self.root / "test")
@@ -570,7 +567,7 @@ class ImageEvaluationTests(unittest.TestCase):
         path = directory / "_annotations.coco.json"
         write_annotations(path, original)
         before = copy.deepcopy(coco)
-        aligned = _align_door_categories(coco, (directory,))
+        aligned = align_door_categories(coco, (directory,))
         self.assertEqual(aligned["source_images"][0]["annotations"], [{
             "id": 828786, "category_id": 0, "bbox": [4, 4, 8, 8],
         }])
@@ -582,7 +579,7 @@ class ImageEvaluationTests(unittest.TestCase):
         })
         write_annotations(path, original)
         with self.assertRaisesRegex(ValueError, "Cannot uniquely align annotation"):
-            _align_door_categories(coco, (directory,))
+            align_door_categories(coco, (directory,))
 
     def test_map_counts_classes_with_no_predictions(self):
         ground_truth = {1: [([0, 0, 10, 10], 0), ([20, 20, 10, 10], 1)]}

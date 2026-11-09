@@ -130,6 +130,21 @@ En test, `source_images` contiene copias completas de las puertas con el mismo `
 
 ### `src\test\__main__.py`
 
+La evaluación se organiza por responsabilidad; `run_test.py` solo interpreta los argumentos y lanza el test:
+
+| Módulo en `src\test` | Responsabilidad |
+| --- | --- |
+| `__main__.py`, `run_test.py` | Entrada CLI, selección del checkpoint, carga del modelo y ciclo de la run de MLflow. |
+| `evaluation.py` | Coordinación del dataset, calibración sobre `valid` y evaluación por tiles y puertas. |
+| `categories.py` | Alineación de categorías con entrenamiento y originales; validación del orden del checkpoint. |
+| `predictions.py` | Inferencia, conversión de cajas e IDs y filtrado por confianza. |
+| `tile_evaluation.py` | Ground truth, métricas e imágenes anotadas por tile. |
+| `image_evaluation.py` | Disponibilidad de puertas completas, reconstrucción, NMS y evaluación por puerta. |
+| `reporting.py` | Registro de resultados en MLflow y escritura de `metrics.json`. |
+| `thresholds.py`, `metrics.py`, `matching.py`, `iou.py`, `drawing.py` | Algoritmos de umbrales, métricas, matching, geometría y renderizado. |
+
+Para evaluar con un modelo ya cargado, se puede importar `evaluate_dataset` de `src.test.evaluation`; el import existente desde `src.test.run_test` sigue disponible.
+
 Ejemplo: `python -m src.test --weights trainings\training\checkpoint_best_total.pth`.
 
 `--weights` carga exactamente ese checkpoint y busca `training_categories.json` en su mismo directorio. Sin este argumento se usa el entrenamiento más reciente con nombre de fecha. El pipeline integrado pasa directamente el checkpoint que acaba de entrenar, sin buscar otros entrenamientos.
