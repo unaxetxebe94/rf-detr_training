@@ -24,7 +24,7 @@ Cualquier comando se ejecuta a través de `uv run`, que garantiza que se usa el 
 ```bash
 uv run pytest                  # ejecutar los tests
 uv run python -m src.test      # evaluación con ponderes: uv run python -m src.test --weights trainings/training/checkpoint_best_total.pth
-uv run python -m src.preprocess --is-master
+uv run python -m src.preprocess
 uv run python -m src.core.train
 ```
 
@@ -59,18 +59,19 @@ No uses `cd .\mlflow; uv run mlflow ui` sin backend: puede abrir una base SQLite
 Este es el archivo que se usa para cambiar el comportamiento del pipeline. Aquí se definen de forma declarativa todos los parámetros de tanto la preparación de datos, como del entrenamiento y de los tests. Aquí te dejo un ejemplo de como se ve el archivo:
 
 ```yaml
-task-name: test_top_bottom  # Es el nombre que se le da a la ejecución
+experiment-name: test_top_bottom  # MLflow experiment name
 model-type: large  # Variante de RF-DETR que se quiere entrenar. Puede ser: nano, small, medium o large
 seed: 42  # Semilla definida para que los experimentos sean reproducibles
 
-# Como los datos están distribuidos en dos ordenadores, se tienen que definir dos fuentes de datos: data-src1 y data-src2. 
-data-src1: E:\Images for labelling\Top  # Dataset local
-data-src2: \\10.139.140.20\Bottom # Dataset remoto
-final-data: C:\training_dataset  # En este path se guardará el dataset final que se usará para entrenar el modelo, después de unificar y preprocesar ambas fuentes de datos
+data:
+  sources:
+    - C:\datasets\source_a
+    - C:\datasets\source_b
+  training-dataset-path: C:\datasets\training_dataset
 
 # Parámetros del preprocesamiento
 preprocess:
-  requires-preprocess: true  # Si se debería de ejecutar el preprocesado o no
+  classes: null  # All available classes; or a subset such as ["scratch", "dent"]
   saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33  # Antes de dividir la imagen en tiles, se le aplica un resize a las imágenes
@@ -91,8 +92,6 @@ train:
   epochs: 15
   weight_decay: 1e-4
   tensorboard: true
-  run_test: true
-  eval_max_dets: 300
 ```
 
 ### `run_pipeline.ps1`
@@ -119,14 +118,20 @@ Guarda funciones de ayuda que se usan a lo largo del pipeline.
 
 ### `src\preprocess\__main__.py`
 
-Coordina funciones separadas por responsabilidad, sin clases de pasos ni logger:
+Run `uv run python -m src.preprocess` to prepare all configured sources, fuse them and select the training classes. No separate fusion command is needed. The training/test entry point remains unchanged; rerun preprocessing explicitly when changing sources or selected classes.
 
-1. `splitter.py` divide las **imágenes originales** en train/valid/test mediante estratificación. Los tiles de una misma puerta nunca se reparten entre splits.
-2. `tile_creation.py` recorta los tiles y sus anotaciones. En train sortea una sola vez por imagen: con `saving-prob` guarda todos sus tiles y, en caso contrario, solo los que contienen defectos. Valid y test guardan todos, también los de puertas sin defectos y los tiles negros.
-3. `augmenter.py` aumenta únicamente train.
-4. `label_corrector.py` corrige las cajas y mantiene el mismo mapeo de categorías en todos los splits.
+1. `splitter.py` stratifies original images into train/valid/test. Tiles from the same original never cross splits.
+2. `tile_creation.py` creates tiles and annotations. Train samples empty tiles once per original using `saving-prob`; valid/test retain all tiles.
+3. `augmenter.py` augments train only.
+4. `annotations.py` corrects boxes and harmonizes category IDs across each source's splits.
+5. `fusion.py` merges only the sources from the current preprocessing run, in `data.sources` order. Old source folders are not included. Category names are compared using `lower()` and case-equivalent categories are merged.
+6. `class_filter.py` applies `preprocess.classes` **after fusion**, updating tile and original-image annotations and recomputing original-image `has_defects`.
 
-En test, `source_images` contiene copias completas de las puertas con el mismo `resize`, sin recorte ROI. El COCO conserva sus anotaciones y el origen de cada tile en esas coordenadas. La fusión master/slave mantiene estas copias y sus metadatos.
+Set `preprocess.classes` to a nonempty list of category names, for example `["Scratch", "DENT"]`. Names must be a subset of the fused catalog and are matched using `lower()`. Unknown names, empty/invalid lists and case-insensitive duplicates raise errors. `null` (the default) retains all available classes. Configuration names must be quoted if they are numeric, for example `["0", "2"]`.
+
+The final dataset is written to `data.training-dataset-path` with the same lowercase category catalog in train/valid/test. IDs are contiguous from 1, following the configured list order (or fused catalog order for `null`), so RF-DETR's zero-based prediction labels map back using `label + 1`. Images remain in the dataset when their removed annotations leave them negative. Raw sources and intermediate per-source datasets are not filtered.
+
+Test `source_images` contains full original images resized without ROI cropping, their annotations and each tile's origin. Fusion and class selection preserve these files and coordinates. `src.core.fuse_datasets` remains a compatibility entry point for fusing already-preprocessed source folders and applying the configured class selection.
 
 ### `src\test\__main__.py`
 
@@ -153,9 +158,9 @@ Para evaluar directamente con un umbral fijo para todas las clases: `python -m s
 
 Los umbrales se calibran exclusivamente con los tiles de `valid`, nunca con `test`. Se comparan los umbrales independientes por clase con un umbral global, barriendo de 0.05 a 0.95 en pasos de 0.05. Gana la estrategia con mayor F1 micro de deteccion (TP/FP/FN acumulados de todas las clases, IoU 0.3); en empate se usa el umbral global. El test por tile y por puerta aplica la estrategia ganadora sin reajustarla. `threshold_calibration` en `metrics.json` guarda ambos F1 de validacion, los candidatos ganadores y la estrategia seleccionada; `per_class_thresholds` contiene los umbrales finalmente aplicados. En la estrategia por clase, las clases sin anotaciones en validacion mantienen el umbral 0.5. Se requiere un split `valid` separado, con anotaciones.
 
-Antes de calibrar o evaluar, las categorias de `valid` y `test` se alinean por nombre exacto con `train\_annotations.coco.json`, usando los IDs del entrenamiento. Se eliminan las anotaciones de clases ausentes en train, tanto de tiles como de `source_images`, y se recalcula `has_defects` por puerta. Las predicciones con IDs ajenos al entrenamiento se descartan. La alineacion se hace en memoria, sin modificar los JSON; el dataset de train debe corresponder al checkpoint evaluado.
+Antes de calibrar o evaluar, las categorias de `valid` y `test` se alinean por nombre sin distinguir mayusculas/minusculas con `train\_annotations.coco.json`, usando los IDs del entrenamiento. Se eliminan las anotaciones de clases ausentes en train, tanto de tiles como de `source_images`, y se recalcula `has_defects` por puerta. Las predicciones con IDs ajenos al entrenamiento se descartan. La alineacion se hace en memoria, sin modificar los JSON; el dataset de train debe corresponder al checkpoint evaluado.
 
-Para las puertas, el test lee primero los JSON originales de `data-src1` y `data-src2` configurados en `params.yaml`. Identifica cada puerta por su `source_image_id` (o por `original_file_name` si es unico), recupera la categoria original de cada anotacion por su `id` y la empareja por nombre exacto con las categorias del test antes de alinearla con train. Si el ID de anotacion ha cambiado, busca su caja original redimensionada usando las dimensiones de ambas imagenes, con tolerancia de un pixel por redondeo; solo acepta coincidencias que identifiquen un unico nombre de categoria. Conserva las cajas ya redimensionadas de `source_images` y no modifica los JSON de disco. Los originales deben estar disponibles; si una puerta o anotacion no se puede identificar, la evaluacion se detiene en lugar de comparar IDs incompatibles.
+For original images, evaluation reads the original COCO files from `data.sources` in `params.yaml`. It identifies each original by `source_image_id` (or a unique `original_file_name`), recovers each annotation's original category by annotation ID, and matches category names using `lower()` before aligning with train. If an annotation ID has changed, it matches the resized original box with a one-pixel tolerance, accepting only an unambiguous category. Existing resized `source_images` boxes are preserved; disk JSON files are not changed. Originals must be available; ambiguous images or annotations raise errors rather than comparing incompatible IDs.
 
 Los nuevos entrenamientos guardan `training_categories.json` junto a los checkpoints. El test usa esta copia si existe junto a `--weights`; para pesos antiguos o copiados se puede indicar el COCO usado realmente al entrenar con `--train-annotations ruta\train\_annotations.coco.json` (tiene prioridad sobre la copia). Se comprueba el orden de los nombres almacenados en el checkpoint, cuando estan disponibles, y se detiene la evaluacion si no coincide. No se deduce una permutacion de clases a partir de los aciertos del test ni se asume que `model.class_names` use los mismos indices que las predicciones. `category_id_to_name` en `metrics.json` registra el mapeo aplicado.
 

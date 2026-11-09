@@ -14,7 +14,7 @@ def validate_checkpoint_categories(model, training_categories):
             cat["name"] for cat in training_categories
             if cat.get("supercategory") != "none"
         ]
-        if list(checkpoint_names) != training_names:
+        if [name.lower() for name in checkpoint_names] != [name.lower() for name in training_names]:
             raise ValueError(
                 "Checkpoint classes/order do not match training annotations. "
                 "Use --train-annotations with the original training COCO JSON. "
@@ -23,12 +23,12 @@ def validate_checkpoint_categories(model, training_categories):
 
 
 def align_categories(coco, training_categories):
-    training_ids = {cat["name"]: cat["id"] for cat in training_categories}
+    training_ids = {cat["name"].lower(): cat["id"] for cat in training_categories}
     if len(training_ids) != len(training_categories):
         raise ValueError("Training category names must be unique for alignment.")
     mapping = {
-        cat["id"]: training_ids[cat["name"]]
-        for cat in coco["categories"] if cat["name"] in training_ids
+        cat["id"]: training_ids[cat["name"].lower()]
+        for cat in coco["categories"] if cat["name"].lower() in training_ids
     }
 
     def align_annotations(annotations):
@@ -59,7 +59,7 @@ def _index_original_images(original_data_dirs):
     originals_by_source, originals_by_name = {}, {}
     for directory in dict.fromkeys(Path(path) for path in original_data_dirs):
         original = read_annotations(directory / "_annotations.coco.json")
-        categories = {cat["id"]: cat["name"] for cat in original["categories"]}
+        categories = {cat["id"]: cat["name"].lower() for cat in original["categories"]}
         annotations = group_annotations_by_image(original)
         for image in original["images"]:
             source_id = uuid5(
@@ -101,7 +101,7 @@ def _original_category_name(ann, source, original_image, original_annotations, c
 
 
 def align_door_categories(coco, original_data_dirs):
-    test_ids = {cat["name"]: cat["id"] for cat in coco["categories"]}
+    test_ids = {cat["name"].lower(): cat["id"] for cat in coco["categories"]}
     if len(test_ids) != len(coco["categories"]):
         raise ValueError("Test category names must be unique for door alignment.")
     originals_by_source, originals_by_name = _index_original_images(original_data_dirs)

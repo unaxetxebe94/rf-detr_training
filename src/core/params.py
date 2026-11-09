@@ -29,6 +29,7 @@ class PreprocessConfig:
     augmentations_per_image: int
     max_transforms_per_sample: int
     n_jobs: int = 4
+    classes: list[str] | None = None
 
 
 @dataclass

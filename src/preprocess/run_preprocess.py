@@ -7,9 +7,11 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.preprocess"
 
-from ..core.seed import set_seed
 from ..core.params import get_data_config, get_global_config, get_preprocess_config
+from ..core.seed import set_seed
 from .annotations import read_annotations
+from .class_filter import filter_classes, validate_class_selection
+from .fusion import _fuse_splitted_datasets
 
 
 def _process_single_source(input_dir: Path, output_dir: Path, cfg) -> None:
@@ -39,6 +41,9 @@ def _process_single_source(input_dir: Path, output_dir: Path, cfg) -> None:
 def run_preprocess():
     data_cfg = get_data_config()
     cfg = get_preprocess_config()
+    validate_class_selection(cfg.classes)
+    if not data_cfg.sources:
+        raise ValueError("At least one data source is required for preprocessing.")
     set_seed(get_global_config().seed)
 
     input_dirs = data_cfg.sources
@@ -69,5 +74,7 @@ def run_preprocess():
                 print(f"Error procesando {out_path}: {e}", file=sys.stderr)
                 return 1
 
-    print("Todos los preprocesados en paralelo han finalizado.")
+    _fuse_splitted_datasets(output_dirs, data_cfg.training_dataset_path)
+    filter_classes(data_cfg.training_dataset_path, cfg.classes)
+    print("Preprocessing, dataset fusion and class selection completed.")
     return 0

@@ -8,6 +8,7 @@ data:
   training-dataset-path: C:\Users\u.etxeberria\Desktop\datasets\training_dataset
 
 preprocess:
+  classes: null  # All defect classes; set a subset of names, e.g. ["scratch", "dent"] (case-insensitive)
   saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33

@@ -100,6 +100,25 @@ class FuseDatasetsTests(unittest.TestCase):
         self.assertEqual(len(result["images"]), 4)
         self.assertEqual(len(result["annotations"]), 4)
 
+    def test_category_names_merge_case_insensitively_including_base_aliases(self):
+        d1 = make_coco(
+            self.root / "a", "a",
+            [{"id": 3, "name": "Scratch"}, {"id": 9, "name": "SCRATCH"}], 9,
+            source_images=[{"id": "a", "annotations": [{"category_id": 9}]}],
+        )
+        d2 = make_coco(
+            self.root / "b", "b", [{"id": 20, "name": "sCrAtCh"}], 20,
+            source_images=[{"id": "b", "annotations": [{"category_id": 20}]}],
+        )
+        output = self.root / "fused"
+        _fuse_datasets([d1, d2], output)
+        result = read_annotations(output / "_annotations.coco.json")
+        self.assertEqual(result["categories"], [{"id": 3, "name": "scratch"}])
+        self.assertEqual([ann["category_id"] for ann in result["annotations"]], [3] * 4)
+        self.assertEqual(
+            [source["annotations"][0]["category_id"] for source in result["source_images"]], [3, 3]
+        )
+
     def test_single_dataset_only_validates_and_copies(self):
         d1 = self.make_dataset("a", [{"id": 3, "name": "x"}], 3)
         output = self.root / "fused"
