@@ -76,22 +76,26 @@ def test_overlapping_tiles_are_merged_per_class_and_clipped(tmp_path):
     ]
     result = infer_image.infer_image(
         model, image_path, tile_size=8, cfg=SimpleNamespace(resize=1.0, apply_roi=False),
-        categories=[{"id": 1, "name": "scratch"}, {"id": 2, "name": "dent"}],
     )
     assert result["tile_count"] == 2
     assert result["detections"] == [
+        {"bbox": [5, 2, 2, 2], "category_id": 11, "score": 0.99},
         {"bbox": [5, 2, 2, 2], "category_id": 1, "score": 0.9},
         {"bbox": [5, 2, 2, 2], "category_id": 2, "score": 0.7},
     ]
 
 
-def test_cli_saves_original_coordinates_and_bounded_preview(tmp_path, monkeypatch):
+@pytest.mark.parametrize("with_annotations", [False, True])
+def test_cli_saves_original_coordinates_and_preview_without_reading_annotations(
+    tmp_path, monkeypatch, with_annotations,
+):
     image_path = tmp_path / "input.png"
     Image.new("RGB", (24, 16)).save(image_path)
     weights = tmp_path / "checkpoint.pth"
     weights.touch()
-    categories = [{"id": 1, "name": "scratch"}]
-    (tmp_path / "training_categories.json").write_text(json.dumps({"categories": categories}))
+    if with_annotations:
+        (tmp_path / "training_categories.json").write_text("Not a valid JSON catalog")
+        (tmp_path / "_annotations.coco.json").write_text("Not valid COCO annotations")
     model = SimpleNamespace(predict=Mock(return_value=prediction([[1, 2, 5, 6]], [0], [0.9])))
     factory = Mock(return_value=model)
     monkeypatch.setitem(sys.modules, "rfdetr", SimpleNamespace(
@@ -107,7 +111,6 @@ def test_cli_saves_original_coordinates_and_bounded_preview(tmp_path, monkeypatc
     result = json.loads((output / "predictions.json").read_text())
     assert result["coordinate_space"] == "original_image_pixels"
     assert result["detections"][0]["bbox"] == [2, 4, 8, 8]
-    assert result["categories"] == categories
     assert result["weights"] == str(weights.resolve())
     with Image.open(output / "preview.png") as preview:
         assert preview.size == (12, 8)
@@ -124,6 +127,20 @@ def test_empty_predictions_still_save_preview(tmp_path):
     assert result["detections"] == []
     infer_image.save_preview(image_path, result, tmp_path / "preview.png")
     assert (tmp_path / "preview.png").is_file()
+
+
+def test_preview_draws_only_boxes(tmp_path, monkeypatch):
+    image_path = tmp_path / "input.png"
+    Image.new("RGB", (20, 10)).save(image_path)
+    draw = Mock()
+    monkeypatch.setattr(infer_image.ImageDraw, "Draw", lambda image: draw)
+    infer_image.save_preview(
+        image_path,
+        {"width": 20, "height": 10, "detections": [{"bbox": [2, 2, 8, 6]}]},
+        tmp_path / "preview.png", max_size=10,
+    )
+    draw.rectangle.assert_called_once_with((1, 1, 5, 4), outline="red", width=2)
+    draw.text.assert_not_called()
 
 
 def test_resize_rounding_does_not_produce_boxes_outside_original(tmp_path):
