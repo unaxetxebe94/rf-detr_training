@@ -1,9 +1,9 @@
 import gc
 import random
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
-from concurrent.futures import ThreadPoolExecutor
 
 from ..core.params import get_global_config, get_preprocess_config
 from .annotations import (
@@ -52,6 +52,27 @@ def _resize_scale(img, tile_size: int, resize: float) -> float:
     return resize
 
 
+def prepare_image_for_tiles(img, img_path, tile_size, cfg):
+    roi = detect_roi(str(img_path), img.width, img.height) if cfg.apply_roi else None
+    if roi is not None:
+        img = img.crop(roi.x, roi.y, roi.w, roi.h)
+    scale = _resize_scale(img, tile_size, cfg.resize)
+    if scale != 1.0:
+        img = img.resize(scale)
+    return img, roi, scale
+
+
+def iter_tile_regions(img, tile_size):
+    xs = sorted({min(x, max(0, img.width - tile_size))
+                 for x in range(0, img.width, tile_size)})
+    ys = sorted({min(y, max(0, img.height - tile_size))
+                 for y in range(0, img.height, tile_size)})
+    width, height = min(tile_size, img.width), min(tile_size, img.height)
+    for y in ys:
+        for x in xs:
+            yield x, y, width, height
+
+
 def _process_image_inner(
     img_info, raw_anns, input_dir, output_dir, tile_size, cfg,
     save_empty, save_source_image,
@@ -63,7 +84,6 @@ def _process_image_inner(
     except Exception:
         print(f"Failed to open {img_path}")
         return [], [], None
-    orig_w, orig_h = img.width, img.height
     source_image = None
     if save_source_image:
         full = img.resize(cfg.resize) if cfg.resize != 1.0 else img
@@ -80,46 +100,35 @@ def _process_image_inner(
         }
         del full
 
-    roi = detect_roi(str(img_path), orig_w, orig_h) if cfg.apply_roi else None
-    if roi is not None:
-        img = img.crop(roi.x, roi.y, roi.w, roi.h)
-    scale = _resize_scale(img, tile_size, cfg.resize)
-    if scale != 1.0:
-        img = img.resize(scale)
+    img, roi, scale = prepare_image_for_tiles(img, img_path, tile_size, cfg)
     transformed_anns = transform_annotations(raw_anns, roi, scale)
     geometries, ann_map, tree = build_geometry_index(transformed_anns)
     images, annotations = [], []
     image_id = ann_id = 1
     origin_x = roi.x * scale if roi else 0
     origin_y = roi.y * scale if roi else 0
-    xs = sorted({min(x, max(0, img.width - tile_size))
-                 for x in range(0, img.width, tile_size)})
-    ys = sorted({min(y, max(0, img.height - tile_size))
-                 for y in range(0, img.height, tile_size)})
-    width, height = min(tile_size, img.width), min(tile_size, img.height)
-    for y in ys:
-        for x in xs:
-            tile_anns, next_ann_id = ([], ann_id) if tree is None else calculate_overlap(
-                x, y, width, height, image_id, ann_id,
-                geometries, ann_map, tree, cfg.min_retained_dimension_ratio,
-            )
-            if not tile_anns and not save_empty:
-                continue
-            filename = f"{img_path.stem}_{source_id}_tile_{x}_{y}.png"
-            tile = img.crop(x, y, width, height)
-            tile.write_to_file(str(output_dir / filename))
-            del tile
-            images.append({
-                "id": image_id,
-                "file_name": filename,
-                "width": width,
-                "height": height,
-                "source_image_id": source_id,
-                "tile_origin": [x + origin_x, y + origin_y],
-            })
-            annotations.extend(tile_anns)
-            image_id += 1
-            ann_id = next_ann_id
+    for x, y, width, height in iter_tile_regions(img, tile_size):
+        tile_anns, next_ann_id = ([], ann_id) if tree is None else calculate_overlap(
+            x, y, width, height, image_id, ann_id,
+            geometries, ann_map, tree, cfg.min_retained_dimension_ratio,
+        )
+        if not tile_anns and not save_empty:
+            continue
+        filename = f"{img_path.stem}_{source_id}_tile_{x}_{y}.png"
+        tile = img.crop(x, y, width, height)
+        tile.write_to_file(str(output_dir / filename))
+        del tile
+        images.append({
+            "id": image_id,
+            "file_name": filename,
+            "width": width,
+            "height": height,
+            "source_image_id": source_id,
+            "tile_origin": [x + origin_x, y + origin_y],
+        })
+        annotations.extend(tile_anns)
+        image_id += 1
+        ann_id = next_ann_id
     return images, annotations, source_image
 
 

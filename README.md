@@ -174,6 +174,21 @@ Si faltan `source_images`, metadatos de reconstrucción o archivos de imágenes 
 
 Con datos completos, `evaluation_scope` es `tiles_and_doors` y se conserva la evaluación por puerta. Los errores de categorías, anotaciones corruptas, tiles ausentes o inferencia no se ocultan mediante este fallback. Regenerar los datasets antiguos solo es necesario si se quieren obtener también resultados por puerta.
 
+### Inferencia de una imagen grande
+
+```powershell
+uv run python -m src.scripts.infer_image "D:\imagenes\puerta.png" `
+    --weights trainings\2026-11-09_14-30-11\checkpoint_best_total.pth `
+    --output-dir inference_output\puerta `
+    --threshold 0.5
+```
+
+No necesita anotaciones de la imagen de entrada ni ejecuta entrenamiento o MLflow. Reutiliza el ROI, `preprocess.resize` y el troceado del preprocesado, incluidos los recortes solapados del borde, e infiere todos los tiles. Usa `model-type` de `params.yaml` (o `--model-type`) para cargar el modelo y seleccionar el tamano de tile; estos parametros deben corresponder al entrenamiento del checkpoint. Sin `--weights`, selecciona el ultimo entrenamiento con nombre de fecha.
+
+Las clases se leen de `training_categories.json` junto al checkpoint; si no existe, del COCO de train configurado. `--train-annotations` permite indicar el catalogo del entrenamiento explicitamente. Se verifica su orden con el checkpoint cuando este lo incluye. Las categorias usan IDs desde 1, igual que la evaluacion.
+
+Guarda `predictions.json` con cajas `[x, y, ancho, alto]` en **pixeles de la imagen original**, deshaciendo el escalado y el desplazamiento del ROI. Los duplicados se eliminan mediante NMS por clase (`--nms-iou`, por defecto 0.5). `preview.png` muestra las detecciones sobre la imagen completa, reducida a un maximo de 2048 pixeles por lado (`--preview-size`) para no cargar la imagen gigante en memoria. Sin `--output-dir`, guarda en `inference_output\<nombre de imagen>`.
+
 ### FP/FN confidence trade-off charts
 
 Run from the repository root:
