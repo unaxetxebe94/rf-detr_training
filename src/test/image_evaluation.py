@@ -56,10 +56,12 @@ def reconstruct_predictions(coco, predictions_by_tile):
         if source_id not in sources or "tile_origin" not in tile:
             raise ValueError(f"Missing source image or tile origin for {tile['file_name']}.")
         offset_x, offset_y = tile["tile_origin"]
+        scale = tile.get("tile_to_source_scale", 1.0)
         for box, label, score in predictions_by_tile.get(tile["id"], []):
             x, y, width, height = box
             grouped[source_id].append((
-                [x + offset_x, y + offset_y, width, height], label, score,
+                [(x + offset_x) * scale, (y + offset_y) * scale, width * scale, height * scale],
+                label, score,
             ))
     return {
         source_id: suppress_overlapping_predictions(grouped[source_id])

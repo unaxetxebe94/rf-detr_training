@@ -9,36 +9,30 @@ if not __package__:
 
 from ..core.params import get_data_config, get_global_config, get_preprocess_config
 from ..core.seed import set_seed
-from .annotations import read_annotations
 from .class_filter import filter_classes, validate_class_selection
 from .fusion import _fuse_splitted_datasets
 
 
-def _process_single_source(input_dir: Path, output_dir: Path, cfg) -> None:
+def _process_single_source(input_dir: Path, output_dir: Path, cfg, full: bool = False) -> dict:
     """Función auxiliar ejecutada en un proceso independiente para cada fuente."""
-    from .annotations import correct_labels
-    from .augmenter import augment_dataset
-    from .splitter import split_annotations
-    from .tile_creation import create_tiles
+    from .incremental import process_source
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    splits = split_annotations(read_annotations(input_dir / "_annotations.coco.json"))
-
-    for split, annotations in splits.items():
-        create_tiles(
-            output_dir / split,
-            input_dir=input_dir,
-            annotations=annotations,
-            saving_prob=cfg.saving_prob if split == "train" else 1.0,
-            save_source_images=split == "test",
-        )
-
-    augment_dataset(output_dir / "train")
-    correct_labels(output_dir)
+    stats = process_source(input_dir, output_dir, cfg, get_global_config(), full=full)
     print(f"Preprocesado completado: {output_dir}")
+    return stats
 
 
-def run_preprocess():
+def _format_stats(stats: dict) -> str:
+    labels = (
+        ("new", "nuevas"), ("modified", "modificadas"), ("deleted", "eliminadas"),
+        ("moved", "cambiadas de split"), ("reused", "sin cambios"), ("failed", "fallidas"),
+        ("tiles_written", "tiles escritos"), ("tiles_deleted", "tiles borrados"),
+        ("augmentations_written", "aumentos escritos"),
+    )
+    return ", ".join(f"{label}={stats.get(key, 0)}" for key, label in labels)
+
+
+def run_preprocess(full: bool = False):
     data_cfg = get_data_config()
     cfg = get_preprocess_config()
     validate_class_selection(cfg.classes)
@@ -60,7 +54,7 @@ def run_preprocess():
     with ProcessPoolExecutor() as executor:
         # Lanzamos una tarea por cada par de input/output
         futures = {
-            executor.submit(_process_single_source, inp, out, cfg): out
+            executor.submit(_process_single_source, inp, out, cfg, full): out
             for inp, out in zip(input_dirs, output_dirs, strict=True)
         }
 
@@ -68,11 +62,13 @@ def run_preprocess():
         for future in as_completed(futures):
             out_path = futures[future]
             try:
-                future.result()  # Si hubo una excepción dentro del proceso, se relanzará aquí
+                stats = future.result()  # Si hubo una excepción dentro del proceso, se relanzará aquí
             except Exception as e:
                 traceback.print_exc()
                 print(f"Error procesando {out_path}: {e}", file=sys.stderr)
                 return 1
+            if isinstance(stats, dict):
+                print(f"{out_path.name}: {_format_stats(stats)}")
 
     _fuse_splitted_datasets(output_dirs, data_cfg.training_dataset_path)
     filter_classes(data_cfg.training_dataset_path, cfg.classes)

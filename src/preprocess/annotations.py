@@ -1,4 +1,5 @@
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,6 +11,10 @@ if TYPE_CHECKING:
 
 
 SPLITS = ("train", "valid", "test")
+DATASET_INFO = {
+    "description": "Dataset used dor the training of the B1375 proyect in Biele Digital"
+}
+DATASET_LICENSES = ["Only usable by Biele Group or companies collaborating with Biele Group"]
 
 
 def read_annotations(path: Path) -> dict:
@@ -18,9 +23,13 @@ def read_annotations(path: Path) -> dict:
 
 
 def write_annotations(path: Path, coco: dict) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    # Write then replace so an interrupted run never leaves a truncated JSON.
+    temporary = path.with_name(f"{path.name}.tmp")
+    with open(temporary, "w", encoding="utf-8") as f:
         json.dump(coco, f, ensure_ascii=False, indent=2)
+    os.replace(temporary, path)
 
 
 def validate_coco(coco: dict, *, require_polygons: bool = False) -> None:
@@ -92,17 +101,11 @@ def transform_annotations(img_anns: list[dict], roi: "ROI | None", f: float) -> 
     return transformed
 
 
-def _clean_annotations(coco: dict, split_dir: Path) -> None:
-    images_by_id = {img["id"]: img for img in coco["images"]}
-    dimensions = {}
-
-    annotations = []
-    for ann in coco["annotations"]:
-        image_id = ann["image_id"]
-        if image_id not in dimensions:
-            with Image.open(split_dir / images_by_id[image_id]["file_name"]) as image:
-                dimensions[image_id] = image.size
-        img_width, img_height = dimensions[image_id]
+def clean_annotation_boxes(annotations: list[dict], image_size) -> list[dict]:
+    """Clamp boxes to the image and drop boxes smaller than 4 px in both dimensions."""
+    img_width, img_height = image_size
+    cleaned = []
+    for ann in annotations:
         x, y, w, h = ann["bbox"]
         x = min(max(x, 0), img_width)
         y = min(max(y, 0), img_height)
@@ -110,24 +113,29 @@ def _clean_annotations(coco: dict, split_dir: Path) -> None:
         h = min(max(h, 0), img_height - y)
         ann["bbox"] = [x, y, w, h]
         if w >= 4 or h >= 4:
-            annotations.append(ann)
-
-    coco["info"] = {
-        "description": "Dataset used dor the training of the B1375 proyect in Biele Digital"
-    }
-    coco["licenses"] = ["Only usable by Biele Group or companies collaborating with Biele Group"]
-    coco["annotations"] = annotations
+            cleaned.append(ann)
+    return cleaned
 
 
-def correct_labels(dataset_path: Path) -> None:
-    datasets = {}
-    for split in SPLITS:
-        split_dir = Path(dataset_path) / split
-        coco = read_annotations(split_dir / "_annotations.coco.json")
-        validate_coco(coco)
-        _clean_annotations(coco, split_dir)
-        datasets[split] = coco
+def _clean_annotations(coco: dict, split_dir: Path) -> None:
+    images_by_id = {img["id"]: img for img in coco["images"]}
+    dimensions = {}
+    for ann in coco["annotations"]:
+        image_id = ann["image_id"]
+        if image_id not in dimensions:
+            with Image.open(split_dir / images_by_id[image_id]["file_name"]) as image:
+                dimensions[image_id] = image.size
 
+    coco["info"] = dict(DATASET_INFO)
+    coco["licenses"] = list(DATASET_LICENSES)
+    coco["annotations"] = [
+        ann for ann in coco["annotations"]
+        if clean_annotation_boxes([ann], dimensions[ann["image_id"]])
+    ]
+
+
+def remap_used_categories(datasets: dict[str, dict]) -> list[dict]:
+    """Keep used categories only, with contiguous 0-based IDs shared by every split."""
     all_annotations = [
         ann for coco in datasets.values()
         for ann in coco["annotations"] + [
@@ -139,6 +147,9 @@ def correct_labels(dataset_path: Path) -> None:
     categories = {
         cat["id"]: cat for coco in datasets.values() for cat in coco["categories"]
     }
+    unknown = used_ids - categories.keys()
+    if unknown:
+        raise ValueError(f"Annotations reference unknown category IDs: {sorted(unknown)}.")
     kept_ids = [old_id for old_id in categories if old_id in used_ids]
     mapping = {old_id: idx for idx, old_id in enumerate(kept_ids)}
     final_categories = [
@@ -146,8 +157,22 @@ def correct_labels(dataset_path: Path) -> None:
     ]
     for ann in all_annotations:
         ann["category_id"] = mapping[ann["category_id"]]
-    for split, coco in datasets.items():
+    for coco in datasets.values():
         coco["categories"] = final_categories
+    return final_categories
+
+
+def correct_labels(dataset_path: Path) -> None:
+    datasets = {}
+    for split in SPLITS:
+        split_dir = Path(dataset_path) / split
+        coco = read_annotations(split_dir / "_annotations.coco.json")
+        validate_coco(coco)
+        _clean_annotations(coco, split_dir)
+        datasets[split] = coco
+
+    remap_used_categories(datasets)
+    for split, coco in datasets.items():
         split_dir = Path(dataset_path) / split
         write_annotations(split_dir / "_annotations.coco.json", coco)
         print(f"Etiquetas corregidas: {split_dir}")

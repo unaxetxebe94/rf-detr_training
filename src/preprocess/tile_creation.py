@@ -1,5 +1,5 @@
 import gc
-import random
+import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,30 +14,24 @@ from .annotations import (
 )
 from .geometry import build_geometry_index, calculate_overlap
 from .image import open_image
-from .roi import detect_roi
+from .roi import ROI, detect_roi
 
 _RAM_SEMAPHORE = threading.Semaphore(4)
 TILE_SIZE_MAPPER = {"nano": 384, "small": 512, "medium": 576, "large": 704}
 
 
-def _process_image(
-    img_info: dict,
-    raw_anns: list[dict],
-    input_dir: Path,
-    output_dir: Path,
-    tile_size: int,
-    cfg,
-    save_empty: bool,
-    save_source_image: bool,
-) -> tuple[list[dict], list[dict], dict | None]:
-    with _RAM_SEMAPHORE:
-        try:
-            return _process_image_inner(
-                img_info, raw_anns, input_dir, output_dir, tile_size,
-                cfg, save_empty, save_source_image,
-            )
-        finally:
-            gc.collect()
+def image_source_id(img_path: Path) -> str:
+    return uuid5(NAMESPACE_URL, str(Path(img_path).resolve())).hex
+
+
+def sample_value(seed: int, source_id: str) -> float:
+    """Uniform value in [0, 1) fixed per original image, independent of processing order."""
+    digest = hashlib.sha256(f"{seed}:{source_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def tile_file_name(img_path: Path, source_id: str, x: int, y: int) -> str:
+    return f"{Path(img_path).stem}_{source_id}_tile_{x}_{y}.png"
 
 
 def _resize_scale(img, tile_size: int, resize: float) -> float:
@@ -62,15 +56,81 @@ def prepare_image_for_tiles(img, img_path, tile_size, cfg):
     return img, roi, scale
 
 
+def apply_layout(img, roi: ROI | None, scale: float):
+    """Repeat the crop/resize of `prepare_image_for_tiles` without detecting the ROI again."""
+    if roi is not None:
+        img = img.crop(roi.x, roi.y, roi.w, roi.h)
+    if scale != 1.0:
+        img = img.resize(scale)
+    return img
+
+
+def tile_regions(width: int, height: int, tile_size: int):
+    xs = sorted({min(x, max(0, width - tile_size)) for x in range(0, width, tile_size)})
+    ys = sorted({min(y, max(0, height - tile_size)) for y in range(0, height, tile_size)})
+    tile_w, tile_h = min(tile_size, width), min(tile_size, height)
+    return [(x, y, tile_w, tile_h) for y in ys for x in xs]
+
+
 def iter_tile_regions(img, tile_size):
-    xs = sorted({min(x, max(0, img.width - tile_size))
-                 for x in range(0, img.width, tile_size)})
-    ys = sorted({min(y, max(0, img.height - tile_size))
-                 for y in range(0, img.height, tile_size)})
-    width, height = min(tile_size, img.width), min(tile_size, img.height)
-    for y in ys:
-        for x in xs:
-            yield x, y, width, height
+    yield from tile_regions(img.width, img.height, tile_size)
+
+
+def tile_annotations(raw_anns, roi: ROI | None, scale: float, regions, min_ratio: float):
+    """Annotations clipped to each region (tile coordinates), without reading pixels."""
+    transformed = transform_annotations(raw_anns, roi, scale)
+    geometries, ann_map, tree = build_geometry_index(transformed)
+    if tree is None:
+        return [[] for _ in regions]
+    return [
+        calculate_overlap(x, y, w, h, 0, 0, geometries, ann_map, tree, min_ratio)[0]
+        for x, y, w, h in regions
+    ]
+
+
+def write_tile(prepared_img, region, path: Path) -> None:
+    x, y, w, h = region
+    prepared_img.crop(x, y, w, h).write_to_file(str(path))
+
+
+def write_source_image(img, resize: float, path: Path) -> tuple[int, int]:
+    """Full original image, resized without ROI, used for whole-door evaluation."""
+    full = img.resize(resize) if resize != 1.0 else img
+    path.parent.mkdir(parents=True, exist_ok=True)
+    full.write_to_file(str(path))
+    return full.width, full.height
+
+
+def source_image_record(source_id, img_info, raw_anns, resize, width, height) -> dict:
+    return {
+        "id": source_id,
+        "file_name": str(Path("source_images") / f"{source_id}.png"),
+        "original_file_name": img_info["file_name"],
+        "width": width,
+        "height": height,
+        "has_defects": bool(raw_anns),
+        "annotations": transform_annotations(raw_anns, None, resize),
+    }
+
+
+def _process_image(
+    img_info: dict,
+    raw_anns: list[dict],
+    input_dir: Path,
+    output_dir: Path,
+    tile_size: int,
+    cfg,
+    save_empty: bool,
+    save_source_image: bool,
+) -> tuple[list[dict], list[dict], dict | None]:
+    with _RAM_SEMAPHORE:
+        try:
+            return _process_image_inner(
+                img_info, raw_anns, input_dir, output_dir, tile_size,
+                cfg, save_empty, save_source_image,
+            )
+        finally:
+            gc.collect()
 
 
 def _process_image_inner(
@@ -78,7 +138,7 @@ def _process_image_inner(
     save_empty, save_source_image,
 ):
     img_path = input_dir / img_info["file_name"]
-    source_id = uuid5(NAMESPACE_URL, str(img_path.resolve())).hex
+    source_id = image_source_id(img_path)
     try:
         img = open_image(str(img_path))
     except Exception:
@@ -86,38 +146,24 @@ def _process_image_inner(
         return [], [], None
     source_image = None
     if save_source_image:
-        full = img.resize(cfg.resize) if cfg.resize != 1.0 else img
-        filename = str(Path("source_images") / f"{source_id}.png")
-        full.write_to_file(str(output_dir / filename))
-        source_image = {
-            "id": source_id,
-            "file_name": filename,
-            "original_file_name": img_info["file_name"],
-            "width": full.width,
-            "height": full.height,
-            "has_defects": bool(raw_anns),
-            "annotations": transform_annotations(raw_anns, None, cfg.resize),
-        }
-        del full
+        source_image = source_image_record(source_id, img_info, raw_anns, cfg.resize, 0, 0)
+        source_image["width"], source_image["height"] = write_source_image(
+            img, cfg.resize, output_dir / source_image["file_name"],
+        )
 
     img, roi, scale = prepare_image_for_tiles(img, img_path, tile_size, cfg)
-    transformed_anns = transform_annotations(raw_anns, roi, scale)
-    geometries, ann_map, tree = build_geometry_index(transformed_anns)
+    regions = tile_regions(img.width, img.height, tile_size)
+    region_anns = tile_annotations(raw_anns, roi, scale, regions, cfg.min_retained_dimension_ratio)
     images, annotations = [], []
-    image_id = ann_id = 1
     origin_x = roi.x * scale if roi else 0
     origin_y = roi.y * scale if roi else 0
-    for x, y, width, height in iter_tile_regions(img, tile_size):
-        tile_anns, next_ann_id = ([], ann_id) if tree is None else calculate_overlap(
-            x, y, width, height, image_id, ann_id,
-            geometries, ann_map, tree, cfg.min_retained_dimension_ratio,
-        )
+    for region, tile_anns in zip(regions, region_anns, strict=True):
         if not tile_anns and not save_empty:
             continue
-        filename = f"{img_path.stem}_{source_id}_tile_{x}_{y}.png"
-        tile = img.crop(x, y, width, height)
-        tile.write_to_file(str(output_dir / filename))
-        del tile
+        x, y, width, height = region
+        filename = tile_file_name(img_path, source_id, x, y)
+        write_tile(img, region, output_dir / filename)
+        image_id = len(images) + 1
         images.append({
             "id": image_id,
             "file_name": filename,
@@ -125,10 +171,10 @@ def _process_image_inner(
             "height": height,
             "source_image_id": source_id,
             "tile_origin": [x + origin_x, y + origin_y],
+            "tile_to_source_scale": cfg.resize / scale,
         })
-        annotations.extend(tile_anns)
-        image_id += 1
-        ann_id = next_ann_id
+        for ann in tile_anns:
+            annotations.append({**ann, "id": len(annotations) + 1, "image_id": image_id})
     return images, annotations, source_image
 
 
@@ -140,6 +186,7 @@ def create_tiles(
     saving_prob: float | None = None,
     save_source_images: bool = False,
 ) -> None:
+    """Tile every image of a COCO dataset at once (non-incremental helper)."""
     global_cfg = get_global_config()
     cfg = get_preprocess_config()
     probability = cfg.saving_prob if saving_prob is None else saving_prob
@@ -154,9 +201,10 @@ def create_tiles(
     if save_source_images:
         (output_dir / "source_images").mkdir(exist_ok=True)
     grouped = group_annotations_by_image(coco)
-    rng = random.Random(global_cfg.seed)
-    # Decide before scheduling workers so sampling is independent of thread order.
-    jobs = [(image, rng.random() < probability) for image in coco["images"]]
+    jobs = [
+        (image, sample_value(global_cfg.seed, image_source_id(input_dir / image["file_name"])) < probability)
+        for image in coco["images"]
+    ]
     final_images, final_annotations, sources = [], [], []
     print(f"Creando tiles de {len(jobs)} imagenes en {output_dir}.")
     with ThreadPoolExecutor(max_workers=cfg.n_jobs) as executor:

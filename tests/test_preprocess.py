@@ -3,6 +3,7 @@ import io
 import random
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -29,7 +30,7 @@ class PreprocessTests(unittest.TestCase):
         self.sources = [self.root / "alpha", self.root / "beta"]
         self.trainings = self.root / "trainings"
         self.params = {
-            "task-name": "test",
+            "experiment-name": "test",
             "model-type": "NANO",
             "seed": 42,
             "data": {
@@ -55,11 +56,16 @@ class PreprocessTests(unittest.TestCase):
             patch("src.core.params.read_params", return_value=self.params),
             patch("core.params.read_params", return_value=self.params),
         ]
+        # Los procesos hijos no verían los parches de configuración.
+        config_patches.append(patch(
+            "src.preprocess.run_preprocess.ProcessPoolExecutor",
+            lambda: ThreadPoolExecutor(max_workers=1),
+        ))
         for config_patch in config_patches:
             config_patch.start()
             self.addCleanup(config_patch.stop)
 
-    def make_dataset(self, directory, count=20):
+    def make_dataset(self, directory, count=20, size=(32, 24)):
         directory.mkdir(parents=True, exist_ok=True)
         coco = {
             "info": {"description": "test"},
@@ -69,10 +75,10 @@ class PreprocessTests(unittest.TestCase):
         }
         for idx in range(count):
             name = f"image{idx}.png"
-            with Image.new("RGB", (32, 24), (80 + idx, 120, 160)) as image:
+            with Image.new("RGB", size, (80 + idx, 120, 160)) as image:
                 image.save(directory / name)
             coco["images"].append({
-                "id": idx + 1, "file_name": name, "width": 32, "height": 24,
+                "id": idx + 1, "file_name": name, "width": size[0], "height": size[1],
             })
             coco["annotations"].append({
                 "id": idx + 1,
@@ -95,7 +101,7 @@ class PreprocessTests(unittest.TestCase):
         data_cfg = get_data_config()
         self.assertEqual(data_cfg.sources, self.sources)
         self.assertEqual(data_cfg.training_dataset_path, self.trainings)
-        self.assertEqual(get_global_config().task_name, "test")
+        self.assertEqual(get_global_config().experiment_name, "test")
         self.assertEqual(get_global_config().model_type, "nano")
         self.assertEqual(get_global_config().seed, 42)
         self.assertEqual(get_preprocess_config().min_retained_dimension_ratio, 0.1)
@@ -109,13 +115,14 @@ class PreprocessTests(unittest.TestCase):
         self.params.clear()
         self.params.update({"global": global_values})
         global_cfg = get_global_config()
-        self.assertEqual(global_cfg.task_name, "test")
+        self.assertEqual(global_cfg.experiment_name, "test")
         self.assertEqual(global_cfg.model_type, "nano")
         self.assertEqual(global_cfg.seed, 42)
 
     def test_pipeline_processes_every_source_in_data_sources_order(self):
         for source in self.sources:
-            self.make_dataset(source)
+            # Con resize 0.5 quedan 400x384: no hace falta ampliar hasta el tile (384).
+            self.make_dataset(source, size=(800, 768))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([]), 0)
         for idx, source in enumerate(self.sources):
@@ -141,7 +148,7 @@ class PreprocessTests(unittest.TestCase):
                     category_ids = {cat["id"] for cat in coco["categories"]}
                     self.assertEqual(category_ids, set(range(len(category_ids))))
                     for img in images.values():
-                        self.assertEqual((img["width"], img["height"]), (16, 12))
+                        self.assertEqual((img["width"], img["height"]), (384, 384))
                         self.assertTrue((output / split / img["file_name"]).is_file())
                         if "_aug" in img["file_name"]:
                             self.assertEqual(split, "train")
@@ -152,7 +159,6 @@ class PreprocessTests(unittest.TestCase):
                         self.assertIn(ann["image_id"], images)
                         self.assertIn(ann["category_id"], category_ids)
                         self.assertEqual(ann["bbox"], [1, 1, 10, 8])
-                self.assertEqual(len(original_ids), 20)
                 self.assertEqual(len(set(original_ids)), 20)
                 self.assertTrue(
                     all(cats == category_schemas[0] for cats in category_schemas)
@@ -175,6 +181,25 @@ class PreprocessTests(unittest.TestCase):
                     )
                 self.assertEqual(binary["Total TP"], len(test["source_images"]))
                 self.assertEqual(detection["mAP@50:95"], 1.0)
+
+    def test_upscaled_tiles_evaluate_in_complete_image_coordinates(self):
+        from src.preprocess.tile_creation import create_tiles
+        from src.test.image_evaluation import evaluate_images
+
+        source, output = self.root / "small", self.root / "tiles"
+        coco = self.make_dataset(source, count=1)
+        with redirect_stdout(io.StringIO()):
+            create_tiles(output, source, annotations=coco, save_source_images=True)
+        test = read_annotations(output / "_annotations.coco.json")
+        predictions = {}
+        for ann in test["annotations"]:
+            predictions.setdefault(ann["image_id"], []).append(
+                (ann["bbox"], ann["category_id"], 0.9)
+            )
+        with redirect_stdout(io.StringIO()):
+            binary, detection = evaluate_images(test, predictions, output, self.root / "evaluation")
+        self.assertEqual(binary["Total TP"], 1)
+        self.assertEqual(detection["mAP@50:95"], 1.0)
 
     def test_pipeline_splits_sources_before_sampling_training_tiles(self):
         source = self.sources[0]
@@ -203,7 +228,8 @@ class PreprocessTests(unittest.TestCase):
                 annotated_ids = {ann["image_id"] for ann in coco["annotations"]}
                 self.assertEqual(annotated_ids, {img["id"] for img in coco["images"]})
             else:
-                self.assertEqual(len(coco["images"]), 3 * len(source_ids))
+                # Fuera de train se guardan todos los tiles: 800x64 se amplía a 4800x384.
+                self.assertEqual(len(coco["images"]), 13 * len(source_ids))
             if split == "test":
                 self.assertTrue(
                     any(not img["has_defects"] for img in coco["source_images"])
@@ -242,13 +268,15 @@ class PreprocessTests(unittest.TestCase):
                 image.save(source / img["file_name"])
         self.params["preprocess"]["resize"] = 1.0
         self.params["preprocess"]["saving-prob"] = 0.5
-        with patch("src.preprocess.tile_creation.random.Random") as random_class:
-            random_class.return_value.random.side_effect = [0.2, 0.8]
+        with patch(
+            "src.preprocess.tile_creation.sample_value", side_effect=[0.2, 0.8],
+        ) as sampler:
             with redirect_stdout(io.StringIO()):
                 create_tiles(self.root / "tiles", source, annotations=coco)
-            self.assertEqual(random_class.return_value.random.call_count, 2)
+            self.assertEqual(sampler.call_count, 2)
         tiles = read_annotations(self.root / "tiles" / "_annotations.coco.json")
-        for stem, expected in (("image0_", 3), ("image1_", 1)):
+        # 1000x64 se amplía a 6000x384: 16 tiles; la imagen descartada solo guarda el anotado.
+        for stem, expected in (("image0_", 16), ("image1_", 1)):
             self.assertEqual(
                 sum(img["file_name"].startswith(stem) for img in tiles["images"]),
                 expected,
@@ -263,7 +291,7 @@ class PreprocessTests(unittest.TestCase):
         with Image.new("RGB", (800, 64), "black") as image:
             image.save(source / "image0.png")
         self.params["preprocess"]["resize"] = 1.0
-        for probability, expected in ((0.0, 0), (1.0, 3)):
+        for probability, expected in ((0.0, 0), (1.0, 13)):
             output = self.root / f"probability{probability}"
             with redirect_stdout(io.StringIO()):
                 create_tiles(
@@ -281,16 +309,16 @@ class PreprocessTests(unittest.TestCase):
 
         source = self.root / "roi"
         coco = self.make_dataset(source, count=1)
-        with Image.new("RGB", (1000, 500), "white") as image:
+        with Image.new("RGB", (4000, 2000), "white") as image:
             image.save(source / "image0.png")
         coco["annotations"][0].update(
-            bbox=[120, 60, 20, 16],
-            segmentation=[[120, 60, 140, 60, 140, 76, 120, 76]],
+            bbox=[480, 240, 80, 64],
+            segmentation=[[480, 240, 560, 240, 560, 304, 480, 304]],
         )
         self.params["preprocess"]["apply-roi"] = True
         with patch(
             "src.preprocess.tile_creation.detect_roi",
-            return_value=ROI(100, 50, 400, 200),
+            return_value=ROI(400, 200, 1600, 800),
         ):
             with redirect_stdout(io.StringIO()):
                 create_tiles(
@@ -298,11 +326,11 @@ class PreprocessTests(unittest.TestCase):
                     saving_prob=1.0, save_source_images=True,
                 )
         result = read_annotations(self.root / "roi_tiles" / "_annotations.coco.json")
-        self.assertEqual(result["images"][0]["tile_origin"], [50, 25])
-        self.assertEqual(result["annotations"][0]["bbox"], [10, 5, 10, 8])
+        self.assertEqual(result["images"][0]["tile_origin"], [200, 100])
+        self.assertEqual(result["annotations"][0]["bbox"], [40, 20, 40, 32])
         full = result["source_images"][0]
-        self.assertEqual((full["width"], full["height"]), (500, 250))
-        self.assertEqual(full["annotations"][0]["bbox"], [60, 30, 10, 8])
+        self.assertEqual((full["width"], full["height"]), (2000, 1000))
+        self.assertEqual(full["annotations"][0]["bbox"], [240, 120, 40, 32])
 
     def test_augmentation_handles_empty_split(self):
         source = self.root / "empty"

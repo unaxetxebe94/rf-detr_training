@@ -131,7 +131,28 @@ Set `preprocess.classes` to a nonempty list of category names, for example `["Sc
 
 The final dataset is written to `data.training-dataset-path` with the same lowercase category catalog in train/valid/test. IDs are contiguous from 1, following the configured list order (or fused catalog order for `null`), so RF-DETR's zero-based prediction labels map back using `label + 1`. Images remain in the dataset when their removed annotations leave them negative. Raw sources and intermediate per-source datasets are not filtered.
 
-Test `source_images` contains full original images resized without ROI cropping, their annotations and each tile's origin. Fusion and class selection preserve these files and coordinates. `src.core.fuse_datasets` remains a compatibility entry point for fusing already-preprocessed source folders and applying the configured class selection.
+Test `source_images` contains full original images resized without ROI cropping, their annotations and each tile's origin. `tile_to_source_scale` maps tile coordinates (including `tile_origin`) to the resized full image, including when a small image or ROI was enlarged to the tile size. Fusion and class selection preserve these files and coordinates. Rerun preprocessing to add this metadata to existing datasets; incremental runs update the JSON without rewriting unchanged images. `src.core.fuse_datasets` remains a compatibility entry point for fusing already-preprocessed source folders and applying the configured class selection.
+
+#### Preprocesado incremental
+
+Cada fuente guarda `sources\<nombre>_source<i>\_preprocess_manifest.json` con, por imagen original, la huella del archivo (tamaño, mtime y SHA-256), su split y los archivos generados. En cada ejecución los JSON se reconstruyen desde las anotaciones originales (barato) y solo se escriben imágenes donde hace falta:
+
+| Cambio | Qué se regenera |
+| --- | --- |
+| Imagen nueva | Se asigna a un split (las existentes conservan el suyo; la nueva va al split más por debajo de su ratio, priorizando etiquetas) y se generan sus tiles, aumentos y `source_image`. |
+| Archivo de imagen modificado | Sus tiles, aumentos y `source_image`. |
+| Anotaciones modificadas o categorías nuevas | Solo los JSON; no se reescriben tiles. |
+| Imagen eliminada | Se borran sus archivos (también en el dataset fusionado). |
+| `model-type`, `resize`, `apply-roi` | Todos los tiles (y `source_images` si cambia `resize`). |
+| `saving-prob` | Solo se añaden o borran los tiles vacíos de train afectados. |
+| `augmentations-per-image`, `max-transforms-per-sample` | Solo los aumentos. |
+| `seed` o ratios | Se rehace el split; los tiles que cambian de split se mueven. |
+
+La fusión solo copia imágenes nuevas o modificadas y borra las que el JSON ya no referencia. El muestreo de `saving-prob` y los aumentos usan una semilla por imagen/tile, así que no dependen del resto de imágenes. Un manifiesto ausente, corrupto o de otra versión provoca la reconstrucción completa de esa fuente. Para forzarla en todas:
+
+```powershell
+uv run python -m src.preprocess --full
+```
 
 ### `src\test\__main__.py`
 

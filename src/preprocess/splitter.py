@@ -64,6 +64,73 @@ def _stratify(
     return {"train": train_ids, "valid": val_ids, "test": test_ids}
 
 
+def _assign_by_deficit(
+    image_ids: list[int],
+    labels: np.ndarray,
+    frozen: dict[int, str],
+    ratios: dict[str, float],
+) -> dict[int, str]:
+    """Place new images where the split is furthest below its target, label-wise first.
+
+    Existing assignments are kept; new images are handled rarest labels first so a single new
+    image (where the multilabel stratifier cannot run) still goes where it is most needed.
+    """
+    splits = list(ratios)
+    indices = {image_id: idx for idx, image_id in enumerate(image_ids)}
+    assigned = dict(frozen)
+    image_counts = {split: 0 for split in splits}
+    label_counts = {split: np.zeros(labels.shape[1], dtype=np.int64) for split in splits}
+    for image_id, split in assigned.items():
+        image_counts[split] += 1
+        label_counts[split] += labels[indices[image_id]]
+    label_totals = labels.sum(axis=0)
+    pending = [image_id for image_id in image_ids if image_id not in assigned]
+
+    def rarity(image_id):
+        present = labels[indices[image_id]].astype(bool)
+        return (int(label_totals[present].min()) if present.any() else len(image_ids), indices[image_id])
+
+    seen_labels = sum(label_counts.values())
+    for image_id in sorted(pending, key=rarity):
+        row = labels[indices[image_id]]
+        seen_labels = seen_labels + row
+        total_images = sum(image_counts.values()) + 1
+        present = row.astype(bool)
+        scores = {
+            split: (
+                float((ratios[split] * seen_labels[present] - label_counts[split][present]).sum()),
+                ratios[split] * total_images - image_counts[split],
+                ratios[split],
+                -index,
+            )
+            for index, split in enumerate(splits)
+        }
+        split = max(splits, key=scores.__getitem__)
+        assigned[image_id] = split
+        image_counts[split] += 1
+        label_counts[split] += row
+    return assigned
+
+
+def assign_splits(
+    coco: dict, ratios: tuple[float, float, float], seed: int, frozen: dict[int, str] | None = None,
+) -> dict[int, str]:
+    """Split assignment per COCO image id; `ratios` is (train, valid, test).
+
+    Without previous assignments the whole dataset is stratified as before; otherwise the
+    images in `frozen` keep their split and only the remaining ones are distributed.
+    """
+    validate_ratios(*ratios)
+    validate_coco(coco)
+    image_ids, labels = _build_label_matrix(coco)
+    known = set(image_ids)
+    frozen = {image_id: split for image_id, split in (frozen or {}).items() if image_id in known}
+    if not frozen:
+        split_ids = _stratify(image_ids, labels, ratios[0], ratios[1], seed)
+        return {image_id: split for split, ids in split_ids.items() for image_id in ids}
+    return _assign_by_deficit(image_ids, labels, frozen, dict(zip(("train", "valid", "test"), ratios, strict=True)))
+
+
 def split_annotations(coco: dict) -> dict[str, dict]:
     global_cfg = get_global_config()
     cfg = get_preprocess_config()

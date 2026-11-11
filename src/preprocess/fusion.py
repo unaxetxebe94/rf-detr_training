@@ -32,21 +32,52 @@ def _validate_dataset(dataset_path):
         raise FileNotFoundError(f"Annotations file not found at path: {annotations_path}")
 
 
-def _copy_dataset_images(dataset_path, output_path):
-    img_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
 
-    files = os.listdir(dataset_path)
 
-    for file in files:
-        if file.lower().endswith(img_extensions):
-            src = os.path.join(dataset_path, file)
-            dst = os.path.join(output_path, file)
-            shutil.copy2(src, dst)
-    source_dir = Path(dataset_path) / "source_images"
-    if source_dir.is_dir():
-        shutil.copytree(
-            source_dir, Path(output_path) / "source_images", dirs_exist_ok=True
-        )
+def _referenced_files(coco):
+    """Rutas relativas (formato POSIX) de las imágenes que usa un JSON COCO."""
+    files = [image["file_name"] for image in coco.get("images", [])]
+    files.extend(source["file_name"] for source in coco.get("source_images", []) if "file_name" in source)
+    return {Path(file_name).as_posix() for file_name in files}
+
+
+def _copy_dataset_images(dataset_path, output_path, referenced):
+    """Copia solo las imágenes referenciadas que falten o hayan cambiado (tamaño/mtime)."""
+    dataset_path, output_path = Path(dataset_path), Path(output_path)
+    copied = 0
+    for file_name in sorted(referenced):
+        src, dst = dataset_path / file_name, output_path / file_name
+        if not src.is_file():
+            continue
+        src_stat = src.stat()
+        try:
+            dst_stat = dst.stat()
+            if dst_stat.st_size == src_stat.st_size and dst_stat.st_mtime_ns == src_stat.st_mtime_ns:
+                continue
+        except FileNotFoundError:
+            pass
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+    return copied
+
+
+def _remove_unreferenced_images(output_path, referenced):
+    """Borra imágenes del split fusionado (y de source_images) que el JSON ya no usa."""
+    output_path = Path(output_path)
+    removed = 0
+    for directory in (output_path, output_path / "source_images"):
+        if not directory.is_dir():
+            continue
+        for path in directory.iterdir():
+            if (
+                path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+                and path.relative_to(output_path).as_posix() not in referenced
+            ):
+                path.unlink()
+                removed += 1
+    return removed
 
 
 def _fuse_datasets(dataset_paths, output_path):
@@ -85,6 +116,7 @@ def _fuse_datasets(dataset_paths, output_path):
             fused_category_names[name] = category
         base_category_mapping[category["id"]] = fused_category_names[name]["id"]
     fused_images = base_annotations.get('images', [])[:]
+    referenced_by_dataset = [_referenced_files(base_annotations)]
     fused_annotations = [
         {**ann, "category_id": base_category_mapping[ann["category_id"]]}
         for ann in base_annotations.get("annotations", [])
@@ -115,6 +147,7 @@ def _fuse_datasets(dataset_paths, output_path):
     for dataset_path in dataset_paths[1:]:
         with open(os.path.join(dataset_path, "_annotations.coco.json"), encoding="utf-8") as f:
             annotations_next = json.load(f)
+        referenced_by_dataset.append(_referenced_files(annotations_next))
 
         # Fusionar categorías
         category_mapping = {}
@@ -188,9 +221,13 @@ def _fuse_datasets(dataset_paths, output_path):
     with open(os.path.join(output_path, "_annotations.coco.json"), 'w', encoding="utf-8") as f:
         json.dump(fused_dataset, f, indent=4) # Indent para legibilidad
 
-    # Copiar imágenes de todos los datasets
-    for dataset_path in dataset_paths:
-        _copy_dataset_images(dataset_path, output_path)
+    # Copiar solo imágenes nuevas o cambiadas y borrar las que ya no se usan
+    copied = sum(
+        _copy_dataset_images(dataset_path, output_path, referenced)
+        for dataset_path, referenced in zip(dataset_paths, referenced_by_dataset, strict=True)
+    )
+    removed = _remove_unreferenced_images(output_path, set().union(*referenced_by_dataset))
+    logger.info(f"{output_path}: {copied} imágenes copiadas, {removed} imágenes obsoletas borradas")
 
 
 def _fuse_splitted_datasets(dataset_paths, output_path):

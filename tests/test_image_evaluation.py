@@ -109,6 +109,28 @@ class ImageEvaluationTests(unittest.TestCase):
         ])
         self.assertEqual(predictions, original)
 
+    def test_reconstructs_scaled_boxes_and_offsets_before_suppressing_overlap(self):
+        coco = {
+            "source_images": [{"id": "door"}],
+            "images": [
+                {
+                    "id": 1, "file_name": "a.png", "source_image_id": "door",
+                    "tile_origin": [8, 16], "tile_to_source_scale": 0.25,
+                },
+                {
+                    "id": 2, "file_name": "b.png", "source_image_id": "door",
+                    "tile_origin": [12, 16], "tile_to_source_scale": 0.25,
+                },
+            ],
+        }
+        predictions = {
+            1: [([8, 4, 16, 8], 0, 0.9)],
+            2: [([4, 4, 16, 8], 0, 0.8)],
+        }
+        self.assertEqual(reconstruct_predictions(coco, predictions)["door"], [
+            ([4, 5, 4, 2], 0, 0.9),
+        ])
+
     def test_complete_images_rendered_once_into_all_four_buckets(self):
         test_dir, output_dir = self.root / "test", self.root / "doors"
         coco = self.make_dataset(test_dir)
