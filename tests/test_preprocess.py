@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from core.params import get_data_config, get_global_config, get_preprocess_config
+from disk.params import get_data_config, get_global_config, get_preprocess_config
 from src.preprocess.__main__ import main
 from src.preprocess.annotations import (
     SPLITS,

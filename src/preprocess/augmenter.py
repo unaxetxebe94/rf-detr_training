@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from ..core.params import get_global_config, get_preprocess_config
+from ..disk.params import get_global_config, get_preprocess_config
 from .annotations import (
     group_annotations_by_image,
     read_annotations,

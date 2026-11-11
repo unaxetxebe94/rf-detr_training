@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.fuse_datasets import (
+from disk.fuse_datasets import (
     _discover_preprocessed_datasets,
     _fuse_datasets,
     _fuse_splitted_datasets,

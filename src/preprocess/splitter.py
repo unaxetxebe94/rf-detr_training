@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
-from ..core.params import get_global_config, get_preprocess_config
+from ..disk.params import get_global_config, get_preprocess_config
 from .annotations import (
     group_annotations_by_image,
     read_annotations,
