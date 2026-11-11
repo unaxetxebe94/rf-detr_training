@@ -43,6 +43,12 @@ class TrainConfig:
     tensorboard: bool
 
 
+@dataclass
+class StreamingConfig:
+    images_per_worker: int = 2
+    num_workers: int = 2
+
+
 def read_params(path: str = r"./params.yaml"):
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -82,3 +88,13 @@ def get_preprocess_config():
 def get_train_config():
     params = read_params()
     return TrainConfig(**params["train"])
+
+
+def get_streaming_config():
+    params = read_params()
+    values = {key.replace("-", "_"): value for key, value in (params.get("streaming") or {}).items()}
+    cfg = StreamingConfig(**values)
+    if cfg.images_per_worker < 1 or cfg.num_workers < 0:
+        raise ValueError("streaming.images-per-worker debe ser >= 1 y streaming.num-workers >= 0.")
+    return cfg
+

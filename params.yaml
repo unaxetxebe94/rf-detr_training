@@ -27,3 +27,7 @@ train:
   epochs: 3
   weight_decay: 1e-4
   tensorboard: true
+
+streaming:  # Solo para `python -m src.streaming` (tiles en memoria, sin escribir el dataset)
+  images-per-worker: 2  # Originales decodificados que cada worker mantiene en RAM a la vez (mezcla sus tiles)
+  num-workers: 2

@@ -154,6 +154,23 @@ La fusión solo copia imágenes nuevas o modificadas y borra las que el JSON ya 
 uv run python -m src.preprocess --full
 ```
 
+### `src\streaming\__main__.py` (entrenamiento con tiles en memoria)
+
+`uv run python -m src.streaming` entrena sin preprocesar a disco: lee las fuentes de `data.sources` y genera los tiles en los DataLoaders. Usa el mismo `params.yaml` (`global`, `preprocess`, `train`) más la sección opcional `streaming`:
+
+```yaml
+streaming:
+  images-per-worker: 2  # Originales decodificados que cada worker mantiene en RAM a la vez
+  num-workers: 2
+```
+
+1. `plan.py` divide cada fuente por imagen original con la misma estratificación, semilla y ratios que el preprocesado a disco. Calcula el ROI, el resize, las regiones de los tiles y sus anotaciones (también `saving-prob`, `classes` y la limpieza de cajas) sin escribir imágenes. Las categorías finales son las mismas (IDs 1..N, nombres en minúsculas).
+2. `dataset.py` (`InMemoryTileDataset`, subclase de `CocoDetection` de RF-DETR) devuelve un tile por `__getitem__`. Decodifica cada original una vez y lo guarda en una caché LRU de `images-per-worker` originales por worker. En train cada tile aparece `1 + augmentations-per-image` veces y las copias reciben aumentos fotométricos aleatorios online, en vez de fijos en disco.
+3. `sampler.py` (`OriginAffineBatchSampler`) asigna cada original a un único worker y le envía sus tiles seguidos. En train mezcla los tiles de ventanas de `images-per-worker` originales y rellena hasta un múltiplo de `grad_accum_steps`. En valid/test cada tile sale una sola vez.
+4. `datamodule.py` (`StreamingDataModule`) inyecta los tres datasets en el `RFDETRDataModule`, así que se mantienen las transformaciones, la evaluación COCO y el test tras el entrenamiento (`run_test`) de RF-DETR.
+
+Más `images-per-worker` mezcla más imágenes por batch a cambio de RAM: cada original decodificado ocupa ancho × alto × 3 bytes tras el ROI y el resize. Al terminar se evalúa el mejor checkpoint sobre los tiles de test en memoria (`test/mAP_*` en MLflow). La evaluación por puerta completa (`src.test`) sigue necesitando el dataset en disco con `source_images`.
+
 ### `src\test\__main__.py`
 
 La evaluación se organiza por responsabilidad; `run_test.py` solo interpreta los argumentos y lanza el test:
