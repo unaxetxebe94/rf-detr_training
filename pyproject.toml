@@ -43,7 +43,8 @@ dependencies = [
     "faster-coco-eval>=1.8.0",
     "torch",
     "torchvision",
-    "rfdetr[loggers,train]>=1.12.0",
+    # augment: Albumentations/Kornia para los aumentos online del pipeline `cached`
+    "rfdetr[augment,loggers,train]>=1.12.0",
     "matplotlib>=3.9",
 ]
 

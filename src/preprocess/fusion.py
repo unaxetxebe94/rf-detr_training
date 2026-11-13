@@ -58,6 +58,8 @@ def _copy_dataset_images(dataset_path, output_path, referenced):
         except FileNotFoundError:
             pass
         dst.parent.mkdir(parents=True, exist_ok=True)
+        # dst may be a hardlink into the cached pipeline's tile cache: replace it instead of writing through.
+        dst.unlink(missing_ok=True)
         shutil.copy2(src, dst)
         copied += 1
     return copied

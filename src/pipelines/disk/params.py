@@ -49,6 +49,55 @@ class StreamingConfig:
     num_workers: int = 4
 
 
+TILE_FORMATS = ("png", "jpeg", "raw")
+CACHED_AUGMENTATION_BACKENDS = ("custom", "albumentations", "kornia")
+
+
+@dataclass
+class CachedConfig:
+    cache_dir: Path | None = None
+    tile_format: str = "png"
+    jpeg_quality: int = 95
+    negative_ratio: float = 1.0
+    augmentation_backend: str = "custom"
+    augment_prob: float = 0.5
+    aug_config: dict | None = None
+    num_workers: int = 4
+    pin_memory: bool | None = None
+    persistent_workers: bool | None = None
+    prefetch_factor: int | None = None
+    amp_dtype: str | None = "auto"
+    eval_batch_size: int | None = None
+    eval_interval: int = 1
+    early_stopping: bool = False
+    early_stopping_patience: int = 10
+    max_bad_samples: int = 20
+
+    def __post_init__(self):
+        if self.cache_dir is not None:
+            self.cache_dir = Path(self.cache_dir)
+        self.tile_format = str(self.tile_format).lower()
+        if self.tile_format == "jpg":
+            self.tile_format = "jpeg"
+        self.augmentation_backend = str(self.augmentation_backend).lower()
+        if self.tile_format not in TILE_FORMATS:
+            raise ValueError(f"cached.tile-format debe ser uno de {TILE_FORMATS}.")
+        if not 1 <= self.jpeg_quality <= 100:
+            raise ValueError("cached.jpeg-quality debe estar en [1, 100].")
+        if not 0 <= self.negative_ratio <= 1:
+            raise ValueError("cached.negative-ratio debe estar en [0, 1].")
+        if self.augmentation_backend not in CACHED_AUGMENTATION_BACKENDS:
+            raise ValueError(f"cached.augmentation-backend debe ser uno de {CACHED_AUGMENTATION_BACKENDS}.")
+        if not 0 <= self.augment_prob <= 1:
+            raise ValueError("cached.augment-prob debe estar en [0, 1].")
+        if self.num_workers < 0 or self.eval_interval < 1 or self.max_bad_samples < 0:
+            raise ValueError("cached.num-workers y max-bad-samples deben ser >= 0 y eval-interval >= 1.")
+
+    def resolved_cache_dir(self, training_dataset_path: Path) -> Path:
+        # Por defecto dentro del dataset: mismo volumen, así la vista puede usar hardlinks.
+        return self.cache_dir or Path(training_dataset_path) / "_tile_cache"
+
+
 def read_params(path: str = r"./params.yaml"):
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -97,4 +146,10 @@ def get_streaming_config():
     if cfg.images_per_worker < 1 or cfg.num_workers < 0:
         raise ValueError("streaming.images-per-worker debe ser >= 1 y streaming.num-workers >= 0.")
     return cfg
+
+
+def get_cached_config():
+    params = read_params()
+    values = {key.replace("-", "_"): value for key, value in (params.get("cached") or {}).items()}
+    return CachedConfig(**values)
 

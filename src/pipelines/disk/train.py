@@ -56,6 +56,8 @@ def get_rfdetr_train_cfg(dataset_dir: Path, output_dir: Path, training_params: T
         epochs=training_params.epochs,
         weight_decay=training_params.weight_decay,
         tensorboard=training_params.tensorboard,
+        # "cpu" (the RF-DETR default) silently picks Albumentations once rfdetr[augment] is installed.
+        augmentation_backend="torchvision",
         mlflow=False
     )
 

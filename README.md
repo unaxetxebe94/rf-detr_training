@@ -171,6 +171,32 @@ streaming:
 
 Más `images-per-worker` mezcla más imágenes por batch a cambio de RAM: cada original decodificado ocupa ancho × alto × 3 bytes tras el ROI y el resize. Al terminar se evalúa el mejor checkpoint sobre los tiles de test en memoria (`test/mAP_*` en MLflow). La evaluación por puerta completa (`src.test`) sigue necesitando el dataset en disco con `source_images`.
 
+### `src\pipelines\cached` (caché incremental de tiles + aumentos online)
+
+`uv run python -m src.pipelines.cached` combina ambos pipelines: los tiles se guardan en disco **una sola vez y de forma incremental** (como el preprocesado a disco), y los aumentos y el muestreo se hacen online en los DataLoaders (como streaming). El flujo es: actualizar la caché → construir la vista → verificarla → entrenar → `src.test` (por tile y por puerta).
+
+- **Caché** (`cache.py`, por defecto en `<training-dataset-path>/_tile_cache/sources/<fuente>_<hash>/`): todos los tiles limpios (sin aumentos, también los vacíos), independientes del split. Una imagen solo se re-tilea si cambia su contenido (sha256) o el layout (`model-type`, `resize`, `apply-roi`, formato). Cambiar ratios, semilla, `classes`, `negative-ratio` o los aumentos **no reescribe ningún tile**: solo se recalculan los JSON. Las imágenes borradas de la fuente borran sus tiles.
+- **Vista** (`view.py`): `<training-dataset-path>/{train,valid,test}` con `_annotations.coco.json`, cuyas imágenes son *hardlinks* a la caché (instantáneo y sin duplicar disco; si la caché está en otro volumen se copian). Con `tile-format: raw`, `valid`/`test` se materializan en PNG para `src.test`. Su fingerprint y resumen se loguean en MLflow (`dataset/*`).
+- **Entrenamiento** (`datamodule.py`, `dataset.py`, `sampler.py`): cada epoch entran todos los tiles con defectos más `negative-ratio` de los vacíos, re-muestreados cada epoch, con longitud alineada a `batch_size × grad_accum_steps`. Cada tile se aumenta con probabilidad `augment-prob` (`max-transforms-per-sample` de `preprocess`). Valid/test usan todos los tiles.
+- **Robustez**: escrituras atómicas, lock (`.cached.lock`) mientras se prepara/entrena/testea, verificación de la vista antes de entrenar y tolerancia a `max-bad-samples` tiles corruptos por worker.
+
+Flags: `--full` (regenera toda la caché), `--skip-update` (reutiliza la vista sin mirar las fuentes), `--deep-verify` (decodifica todos los tiles), `--resume <dir|ckpt>` (reanuda desde `last.ckpt` del entrenamiento, en el mismo directorio), `--no-test`, `--output-dir`. Solo preparar caché y vista: `uv run python -m src.pipelines.cached.prepare [--full] [--deep-verify]`.
+
+Usa `global`, `data`, `train` y de `preprocess` `resize`, `apply-roi`, ratios, `classes`, `min-retained-dimension-ratio`, `max-transforms-per-sample` y `n-jobs` (`saving-prob` y `augmentations-per-image` no se usan). Sección `cached` de `params.yaml`:
+
+| Parámetro | Descripción |
+|---|---|
+| `cache-dir` | `null` → `<training-dataset-path>/_tile_cache`. Debe estar en el mismo volumen que la vista para usar hardlinks. |
+| `tile-format` / `jpeg-quality` | `png` (sin pérdida), `jpeg` (decode rápido, menos disco) o `raw` (`.npy` sin codificar, lo más rápido y lo que más disco ocupa). Cambiarlo regenera los tiles. |
+| `negative-ratio` | Fracción de tiles train sin defectos que entra en cada epoch. |
+| `augmentation-backend` | `custom` (aumentos fotométricos propios en los workers), `albumentations` (CPU) o `kornia` (GPU, requiere CUDA). |
+| `augment-prob` / `aug-config` | Probabilidad de aumentar cada tile; `aug-config` es el `aug_config` de RF-DETR para albumentations/kornia (`null` → flip + ColorJitter + GaussianBlur equivalentes). |
+| `num-workers`, `pin-memory`, `persistent-workers`, `prefetch-factor` | DataLoaders (`null` → valor por defecto de RF-DETR). |
+| `amp-dtype`, `eval-batch-size`, `eval-interval`, `early-stopping`, `early-stopping-patience` | Opciones de `TrainConfig` de RF-DETR. |
+| `max-bad-samples` | Tiles ilegibles tolerados por worker (se sustituyen por otro) antes de abortar. |
+
+> La vista ocupa las mismas carpetas que el preprocesado a disco: ejecutar un pipeline reescribe lo que dejó el otro (la fusión del pipeline a disco reemplaza los hardlinks sin modificar la caché).
+
 ### `src\test\__main__.py`
 
 La evaluación se organiza por responsabilidad; `run_test.py` solo interpreta los argumentos y lanza el test:

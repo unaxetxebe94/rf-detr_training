@@ -31,3 +31,22 @@ train:
 streaming:  # Solo para `python -m src.streaming` (tiles en memoria, sin escribir el dataset)
   images-per-worker: 2  # Originales decodificados que cada worker mantiene en RAM a la vez (mezcla sus tiles)
   num-workers: 2
+
+cached:  # Solo para `python -m src.pipelines.cached` (caché incremental de tiles + aumentos online en los DataLoaders)
+  cache-dir: null  # null => <training-dataset-path>/_tile_cache (mismo volumen que la vista para poder usar hardlinks)
+  tile-format: png  # png (sin pérdida) | jpeg (decode rápido) | raw (.npy sin codificar: lo más rápido, más disco)
+  jpeg-quality: 95
+  negative-ratio: 1.0  # Fracción de tiles train SIN defectos que entra en cada epoch (re-muestreados cada epoch)
+  augmentation-backend: custom  # custom (fotométricos propios en CPU) | albumentations (CPU) | kornia (GPU)
+  augment-prob: 0.5  # Probabilidad de aumentar cada tile en cada epoch (max-transforms-per-sample de preprocess)
+  aug-config: null  # Solo albumentations/kornia: aug_config de RF-DETR; null => equivalente a los aumentos custom
+  num-workers: 4
+  pin-memory: null  # null => automático (true con CUDA)
+  persistent-workers: true
+  prefetch-factor: 2
+  amp-dtype: auto  # auto | bf16 | fp16 | null (fp32)
+  eval-batch-size: null  # null => batch_size de train
+  eval-interval: 1  # Validar cada N epochs
+  early-stopping: false
+  early-stopping-patience: 10
+  max-bad-samples: 20  # Tiles corruptos tolerados por worker en train antes de abortar

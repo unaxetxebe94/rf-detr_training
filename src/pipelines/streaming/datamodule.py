@@ -6,7 +6,11 @@ from rfdetr._namespace import _namespace_from_configs
 from rfdetr.config import AugmentationBackend, MultiScale
 from rfdetr.datasets.aug_configs import AUG_CONFIG
 from rfdetr.datasets.coco import make_coco_transforms, make_coco_transforms_square_div_64
-from rfdetr.datasets.kornia_transforms import is_gpu_postprocess, resolve_augmentation_backend, resolve_backend_for_build
+from rfdetr.datasets.kornia_transforms import (
+    is_gpu_postprocess,
+    resolve_augmentation_backend,
+    resolve_backend_for_build,
+)
 from rfdetr.training import RFDETRDataModule
 from rfdetr.training.module_data import _has_cuda_device, _worker_init_fn
 from torch.utils.data import DataLoader
@@ -16,6 +20,37 @@ from .plan import TilePlan
 from .sampler import OriginAffineBatchSampler
 
 RFDETR_SPLITS = {"train": "train", "val": "valid", "test": "test"}
+
+
+def dataset_namespace(model_config, train_config):
+    """Same augmentation-backend resolution as ``RFDETRDataModule.setup('fit')`` before building datasets."""
+    ns = _namespace_from_configs(model_config, train_config)
+    requested = train_config.augmentation_backend
+    resolved = resolve_augmentation_backend(requested, has_cuda=_has_cuda_device())
+    if resolved != requested:
+        ns.augmentation_backend = "kornia" if is_gpu_postprocess(resolved) else "cpu"
+    if resolved == AugmentationBackend.ALBU and ns.aug_config is None:
+        ns.aug_config = AUG_CONFIG
+    return ns
+
+
+def build_transforms(image_set: str, model_config, ns):
+    """RF-DETR transform pipeline of a split, as the Roboflow COCO dataset builder makes it."""
+    multi_scale = MultiScale.from_value(ns.multi_scale)
+    builder = make_coco_transforms_square_div_64 if ns.square_resize_div_64 else make_coco_transforms
+    return builder(
+        image_set,
+        model_config.resolution,
+        multi_scale=multi_scale is not MultiScale.OFF,
+        expanded_scales=ns.expanded_scales,
+        skip_random_resize=multi_scale is not MultiScale.PER_SAMPLE,
+        patch_size=ns.patch_size,
+        num_windows=ns.num_windows,
+        aug_config=getattr(ns, "aug_config", None),
+        scale_jitter=getattr(ns, "scale_jitter", True),
+        gpu_postprocess=is_gpu_postprocess(resolve_backend_for_build(getattr(ns, "augmentation_backend", "cpu"))),
+        keypoint_flip_pairs=None,
+    )
 
 
 class StreamingDataModule(RFDETRDataModule):
@@ -38,32 +73,10 @@ class StreamingDataModule(RFDETRDataModule):
         self.seed = seed
 
     def _dataset_namespace(self):
-        """Same augmentation-backend resolution as ``RFDETRDataModule.setup('fit')`` before building datasets."""
-        ns = _namespace_from_configs(self.model_config, self.train_config)
-        requested = self.train_config.augmentation_backend
-        resolved = resolve_augmentation_backend(requested, has_cuda=_has_cuda_device())
-        if resolved != requested:
-            ns.augmentation_backend = "kornia" if is_gpu_postprocess(resolved) else "cpu"
-        if resolved == AugmentationBackend.ALBU and ns.aug_config is None:
-            ns.aug_config = AUG_CONFIG
-        return ns
+        return dataset_namespace(self.model_config, self.train_config)
 
     def _transforms(self, image_set: str, ns):
-        multi_scale = MultiScale.from_value(ns.multi_scale)
-        builder = make_coco_transforms_square_div_64 if ns.square_resize_div_64 else make_coco_transforms
-        return builder(
-            image_set,
-            self.model_config.resolution,
-            multi_scale=multi_scale is not MultiScale.OFF,
-            expanded_scales=ns.expanded_scales,
-            skip_random_resize=multi_scale is not MultiScale.PER_SAMPLE,
-            patch_size=ns.patch_size,
-            num_windows=ns.num_windows,
-            aug_config=getattr(ns, "aug_config", None),
-            scale_jitter=getattr(ns, "scale_jitter", True),
-            gpu_postprocess=is_gpu_postprocess(resolve_backend_for_build(getattr(ns, "augmentation_backend", "cpu"))),
-            keypoint_flip_pairs=None,
-        )
+        return build_transforms(image_set, self.model_config, ns)
 
     def _build(self, image_set: str, ns) -> InMemoryTileDataset:
         train = image_set == "train"
