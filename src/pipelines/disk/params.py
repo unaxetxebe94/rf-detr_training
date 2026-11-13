@@ -45,8 +45,8 @@ class TrainConfig:
 
 @dataclass
 class StreamingConfig:
-    images_per_worker: int = 2
-    num_workers: int = 2
+    images_per_worker: int = 4
+    num_workers: int = 4
 
 
 def read_params(path: str = r"./params.yaml"):

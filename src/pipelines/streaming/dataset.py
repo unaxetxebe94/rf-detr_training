@@ -9,10 +9,10 @@ from PIL import Image
 from pycocotools.coco import COCO
 from rfdetr.datasets.coco import CocoDetection, ConvertCoco
 
-from ..preprocess.image import open_image
-from ..preprocess.image_transforms import ALL_AUGMENTATIONS, apply_transforms
-from ..preprocess.roi import ROI
-from ..preprocess.tile_creation import apply_layout
+from ...preprocess.image import open_image
+from ...preprocess.image_transforms import ALL_AUGMENTATIONS, apply_transforms
+from ...preprocess.roi import ROI
+from ...preprocess.tile_creation import apply_layout
 from .plan import Original, SplitPlan
 
 

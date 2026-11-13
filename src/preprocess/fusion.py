@@ -5,8 +5,8 @@ import shutil
 import sys
 from pathlib import Path
 
-from ..disk.logger import get_logger
-from ..disk.params import get_data_config, get_preprocess_config
+from ..pipelines.disk.logger import get_logger
+from ..pipelines.disk.params import get_data_config, get_preprocess_config
 from .class_filter import filter_classes
 
 logger = get_logger(__name__, level=logging.DEBUG)

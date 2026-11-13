@@ -2,7 +2,7 @@
 
 import json
 
-from ..disk.mlflow import ensure_test_run, log_dict_metrics, log_dict_params
+from ..pipelines.disk.mlflow import ensure_test_run, log_dict_metrics, log_dict_params
 
 
 def log_results_to_mlflow(results: dict) -> str:

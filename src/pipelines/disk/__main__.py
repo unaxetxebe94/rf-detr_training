@@ -1,6 +1,6 @@
 import sys
 
-from ..test.run_test import run_test
+from ...test.run_test import run_test
 from .mlflow import mlflow_run
 from .train import main as train
 

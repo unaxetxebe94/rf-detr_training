@@ -9,8 +9,8 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.test"
 
-from ..disk.mlflow import ensure_test_run, log_dict_params, mlflow_run
-from ..disk.params import get_data_config, get_global_config
+from ..pipelines.disk.mlflow import ensure_test_run, log_dict_params, mlflow_run
+from ..pipelines.disk.params import get_data_config, get_global_config
 from .evaluation import evaluate_dataset
 
 

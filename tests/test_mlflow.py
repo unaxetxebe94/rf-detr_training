@@ -6,10 +6,10 @@ import pytest
 
 import mlflow
 from mlflow import MlflowClient
-from src.disk import mlflow as tracking
-from src.disk import train
-from src.disk.__main__ import main as pipeline
-from src.disk.params import GlobalConfig, PreprocessConfig, TrainConfig
+from pipelines.disk import mlflow as tracking
+from pipelines.disk import train
+from pipelines.disk.__main__ import main as pipeline
+from pipelines.disk.params import GlobalConfig, PreprocessConfig, TrainConfig
 from src.test import run_test as evaluation
 from src.test.reporting import log_results_to_mlflow
 

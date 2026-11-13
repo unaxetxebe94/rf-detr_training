@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 from rfdetr.datasets.coco import CocoDetection
 
-from src.disk.params import get_preprocess_config
+from pipelines.disk.params import get_preprocess_config
 from src.preprocess import run_preprocess as pipeline
 from src.preprocess.annotations import SPLITS, read_annotations, write_annotations
 from src.preprocess.class_filter import filter_classes

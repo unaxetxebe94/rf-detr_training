@@ -13,7 +13,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.scripts"
 
-from ..disk.params import get_global_config, get_preprocess_config
+from ..pipelines.disk.params import get_global_config, get_preprocess_config
 from ..preprocess.image import open_image
 from ..preprocess.tile_creation import TILE_SIZE_MAPPER, iter_tile_regions, prepare_image_for_tiles
 from ..test.image_evaluation import suppress_overlapping_predictions

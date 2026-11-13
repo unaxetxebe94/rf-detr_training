@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..preprocess.annotations import SPLITS, clean_annotation_boxes, group_annotations_by_image, read_annotations, validate_coco
-from ..preprocess.augmenter import validate_augmentation_config
-from ..preprocess.class_filter import validate_class_selection
-from ..preprocess.image import open_image
-from ..preprocess.roi import ROI
-from ..preprocess.splitter import assign_splits
-from ..preprocess.tile_creation import (
+from ...preprocess.annotations import SPLITS, clean_annotation_boxes, group_annotations_by_image, read_annotations, validate_coco
+from ...preprocess.augmenter import validate_augmentation_config
+from ...preprocess.class_filter import validate_class_selection
+from ...preprocess.image import open_image
+from ...preprocess.roi import ROI
+from ...preprocess.splitter import assign_splits
+from ...preprocess.tile_creation import (
     _RAM_SEMAPHORE,
     TILE_SIZE_MAPPER,
     image_source_id,

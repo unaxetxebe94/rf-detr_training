@@ -3,10 +3,10 @@ from collections import Counter
 import pytest
 
 from src.preprocess.annotations import SPLITS
-from src.streaming import dataset as dataset_module
-from src.streaming.dataset import InMemoryTileDataset
-from src.streaming.plan import build_tile_plan
-from src.streaming.sampler import OriginAffineBatchSampler
+from pipelines.streaming import dataset as dataset_module
+from pipelines.streaming.dataset import InMemoryTileDataset
+from pipelines.streaming.plan import build_tile_plan
+from pipelines.streaming.sampler import OriginAffineBatchSampler
 from test_incremental_preprocess import GLOBAL, make_config, make_source
 
 TILES_PER_IMAGE = 9  # 800 px image, nano tile 384 -> 3x3 tiles

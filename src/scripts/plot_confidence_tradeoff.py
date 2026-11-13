@@ -12,7 +12,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.scripts"
 
-from ..disk.params import get_data_config, get_global_config
+from ..pipelines.disk.params import get_data_config, get_global_config
 from ..preprocess.annotations import read_annotations
 from ..test.categories import align_categories, align_door_categories, validate_checkpoint_categories
 from ..test.confidence_sweep import sweep_confidence_thresholds

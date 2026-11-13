@@ -7,8 +7,8 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "src.preprocess"
 
-from ..disk.params import get_data_config, get_global_config, get_preprocess_config
-from ..disk.seed import set_seed
+from ..pipelines.disk.params import get_data_config, get_global_config, get_preprocess_config
+from ..pipelines.disk.seed import set_seed
 from .class_filter import filter_classes, validate_class_selection
 from .fusion import _fuse_splitted_datasets
 

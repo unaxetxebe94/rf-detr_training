@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from ..disk.params import get_global_config, get_preprocess_config
+from ..pipelines.disk.params import get_global_config, get_preprocess_config
 from .annotations import (
     group_annotations_by_image,
     read_annotations,
