@@ -6,10 +6,10 @@ import pytest
 
 import mlflow
 from mlflow import MlflowClient
-from pipelines.disk import mlflow as tracking
-from pipelines.disk import train
-from pipelines.disk.__main__ import main as pipeline
-from pipelines.disk.params import GlobalConfig, PreprocessConfig, TrainConfig
+from src.pipelines.disk import mlflow as tracking
+from src.pipelines.disk import train
+from src.pipelines.disk.__main__ import main as pipeline
+from src.pipelines.disk.params import GlobalConfig, PreprocessConfig, TrainConfig
 from src.test import run_test as evaluation
 from src.test.reporting import log_results_to_mlflow
 
@@ -78,8 +78,8 @@ def test_independent_stage_closes_its_run(store, fails):
 @pytest.mark.parametrize("fails", [False, True])
 def test_pipeline_uses_its_checkpoint_and_records_failure(store, fails):
     checkpoint = Path("trainings") / "this-run" / "checkpoint_best_total.pth"
-    with patch("src.core.__main__.train", return_value=checkpoint):
-        with patch("src.core.__main__.run_test") as evaluate:
+    with patch("src.pipelines.disk.__main__.train", return_value=checkpoint):
+        with patch("src.pipelines.disk.__main__.run_test") as evaluate:
             if fails:
                 evaluate.side_effect = ValueError("evaluation failed")
                 with pytest.raises(ValueError, match="evaluation failed"):
