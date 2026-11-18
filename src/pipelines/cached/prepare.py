@@ -9,6 +9,7 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 
+from ...preprocess.annotations import SPLITS
 from ..disk.params import get_cached_config, get_data_config, get_global_config, get_preprocess_config
 from .cache import update_cache
 from .lock import CacheLock
@@ -51,6 +52,11 @@ def prepare(*, full: bool = False, skip_update: bool = False, deep_verify: bool 
         for result in results:
             for key, value in result.stats.items():
                 stats[f"cache_{key}"] = stats.get(f"cache_{key}", 0) + value
+            source = result.input_dir.name
+            stats[f"source/{source}/originals"] = len(result.images)
+            for split in SPLITS:
+                stats[f"source/{source}/{split}_originals"] = sum(image["split"] == split for image in result.images)
+            stats[f"source/{source}/annotations"] = len(result.coco.get("annotations", []))
         view, view_stats = build_view(
             results, dataset_dir, preprocess_cfg.classes, cached_cfg.tile_format, n_jobs=preprocess_cfg.n_jobs
         )

@@ -4,8 +4,9 @@ seed: 42
 
 data:
   sources:
-    - D:\Images for multiverse\Right
-  training-dataset-path: C:\Users\u.etxeberria\Desktop\datasets\training_dataset
+    - G:\B1375\DATA\Left
+    - G:\B1375\DATA\Right
+  training-dataset-path: G:\B1375\datasets4semantic_search\Left-Right
 
 preprocess:
   classes: null  # All defect classes; set a subset of names, e.g. ["scratch", "dent"] (case-insensitive)
@@ -37,7 +38,7 @@ cached:  # Solo para `python -m src.pipelines.cached` (caché incremental de til
   tile-format: png  # png (sin pérdida) | jpeg (decode rápido) | raw (.npy sin codificar: lo más rápido, más disco)
   jpeg-quality: 95
   negative-ratio: 1.0  # Fracción de tiles train SIN defectos que entra en cada epoch (re-muestreados cada epoch)
-  augmentation-backend: custom  # custom (fotométricos propios en CPU) | albumentations (CPU) | kornia (GPU)
+  augmentation-backend: kornia  # custom (fotométricos propios en CPU) | albumentations (CPU) | kornia (GPU)
   augment-prob: 0.5  # Probabilidad de aumentar cada tile en cada epoch (max-transforms-per-sample de preprocess)
   aug-config: null  # Solo albumentations/kornia: aug_config de RF-DETR; null => equivalente a los aumentos custom
   num-workers: 4

@@ -20,7 +20,8 @@ from mlflow import ActiveRun
 from .params import get_global_config, get_preprocess_config
 
 _MLFLOW_DIR = Path(__file__).resolve().parents[2] / "mlflow"
-MLFLOW_TRACKING_URI = _MLFLOW_DIR.as_uri()
+# MLFLOW_TRACKING_URI (e.g. sqlite:///mlflow.db or a server) replaces the file store, which MLflow deprecates.
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI") or _MLFLOW_DIR.as_uri()
 
 # MLflow solo acepta en métricas y params letras, números y "_/. - ": lo demás lo reemplazamos.
 _INVALID_KEY_CHARS = re.compile(r"[^\w/. \-]", re.UNICODE)
@@ -78,6 +79,10 @@ def mlflow_run(stage: str):
     else:
         if owns_run:
             stop_mlflow()
+
+
+def set_run_name(name: str) -> None:
+    mlflow.set_tag("mlflow.runName", name)
 
 
 def get_mlflow_cfg() -> MLFlowConfig | None:

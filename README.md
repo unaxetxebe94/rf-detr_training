@@ -50,7 +50,7 @@ $trackingUri = uv run python -c "from pathlib import Path; print((Path.cwd() / '
 uv run mlflow ui --backend-store-uri "$trackingUri"
 ```
 
-No uses `cd .\mlflow; uv run mlflow ui` sin backend: puede abrir una base SQLite distinta, mostrando solo `Default` o experimentos sin los runs existentes. No hace falta migrar ni borrar las bases SQLite para consultar los runs del almacén de archivos.
+No uses `cd .\mlflow; uv run mlflow ui` sin backend: puede abrir una base SQLite distinta, mostrando solo `Default` o experimentos sin los runs existentes. No hace falta migrar ni borrar las bases SQLite para consultar los runs del almacén de archivos. Para usar otro backend (p. ej. `sqlite:///mlflow.db` o un servidor, recomendable para un historial diario largo) define la variable de entorno `MLFLOW_TRACKING_URI`.
 
 ## Archivos importantes
 
@@ -180,7 +180,22 @@ Más `images-per-worker` mezcla más imágenes por batch a cambio de RAM: cada o
 - **Entrenamiento** (`datamodule.py`, `dataset.py`, `sampler.py`): cada epoch entran todos los tiles con defectos más `negative-ratio` de los vacíos, re-muestreados cada epoch, con longitud alineada a `batch_size × grad_accum_steps`. Cada tile se aumenta con probabilidad `augment-prob` (`max-transforms-per-sample` de `preprocess`). Valid/test usan todos los tiles.
 - **Robustez**: escrituras atómicas, lock (`.cached.lock`) mientras se prepara/entrena/testea, verificación de la vista antes de entrenar y tolerancia a `max-bad-samples` tiles corruptos por worker.
 
-Flags: `--full` (regenera toda la caché), `--skip-update` (reutiliza la vista sin mirar las fuentes), `--deep-verify` (decodifica todos los tiles), `--resume <dir|ckpt>` (reanuda desde `last.ckpt` del entrenamiento, en el mismo directorio), `--no-test`, `--output-dir`. Solo preparar caché y vista: `uv run python -m src.pipelines.cached.prepare [--full] [--deep-verify]`.
+Flags: `--full` (regenera toda la caché), `--skip-update` (reutiliza la vista sin mirar las fuentes), `--deep-verify` (decodifica todos los tiles), `--resume <dir|ckpt>` (reanuda el mismo entrenamiento desde `last.ckpt`, en el mismo directorio), `--init-from <dir|ckpt>` (entrenamiento incremental: carga solo los pesos de otro entrenamiento —su `checkpoint_best_total.pth`— con optimizador y epochs nuevos; exige las mismas clases), `--no-test`, `--output-dir`. `--resume` e `--init-from` son incompatibles. Solo preparar caché y vista: `uv run python -m src.pipelines.cached.prepare [--full] [--deep-verify]`.
+
+#### Comparar entrenamientos incrementales
+
+Cada run de entrenamiento registra en MLflow, además de métricas y parámetros:
+
+- **Dataset** (`dataset/*`): tiles, positivos/negativos, anotaciones y originales por split; anotaciones y tiles **por clase y split**; totales (`all/*`); tiles por epoch; originales y anotaciones por fuente (`source/<fuente>/*`); hash de la lista de originales de cada split; fingerprint; tamaño y formato de tile.
+- **Preprocesado y configuración**: `preprocess/*` (solo lo que usa este pipeline), `cached/*`, `train/*`, `global/*`.
+- **Entorno** (`env/*`): commit, rama y si había cambios sin commitear, versiones de `rfdetr`/`torch`/`kornia`/…, GPU.
+- **Linaje**: tags `parent_run_id`, `warm_start`, `init_checkpoint`, `same_dataset_as_parent` y `delta/*` (diferencia de cada contador del dataset respecto al entrenamiento padre: `--init-from` o, si no, el último entrenamiento terminado). Los tags `train_status` y `test_status` distinguen un fallo del test de un fallo del entrenamiento.
+- **Artefactos** (`run_info/`, también copiados en `trainings/<fecha>/run_info/`): `params.yaml`, `dataset_report.json`, `splits.json` (originales de cada split), `environment.json` y `rfdetr_train_config.json`.
+- **Nombre de la run**: fecha, nº de imágenes y anotaciones, fingerprint (`2026-11-18 10:30 | 1240 img | 5300 ann | a1b2c3d | warm`).
+
+`uv run python -m src.pipelines.cached.compare [--last 5 | --runs ID ...] [--metrics REGEX] [--all] [--csv FILE]` imprime una tabla con una columna por run y solo las filas que difieren (parámetros, dataset, tags, métricas) más la columna `Δ último-primero`.
+
+El split se mantiene estable para las imágenes ya vistas, pero las nuevas se reparten también en `test`: el test cambia entre entrenamientos y sus métricas no son estrictamente comparables (`splits.json` y `dataset/test/originals_hash` indican qué test se usó).
 
 Usa `global`, `data`, `train` y de `preprocess` `resize`, `apply-roi`, ratios, `classes`, `min-retained-dimension-ratio`, `max-transforms-per-sample` y `n-jobs` (`saving-prob` y `augmentations-per-image` no se usan). Sección `cached` de `params.yaml`:
 
