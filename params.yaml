@@ -4,8 +4,9 @@ seed: 42
 
 data:
   sources:
-    - D:\Images for multiverse\Right
-  training-dataset-path: C:\Users\u.etxeberria\Desktop\datasets\training_dataset
+    - G:\B1375\DATA\Left
+    - G:\B1375\DATA\Right
+  training-dataset-path: G:\B1375\TRAINING_DATASETS\Left-Right
 
 preprocess:
   classes: null  # All defect classes; set a subset of names, e.g. ["scratch", "dent"] (case-insensitive)
