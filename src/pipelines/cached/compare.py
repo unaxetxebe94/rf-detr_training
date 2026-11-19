@@ -68,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true", help="Muestra también los campos idénticos en todas las runs.")
     parser.add_argument("--csv", type=Path, help="Guarda la tabla en este CSV.")
     args = parser.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     client = MlflowClient()
@@ -79,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     table = build_table(runs, args.metrics, only_differences=not args.all)
     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 250,
                            "display.max_colwidth", 60):
-        print(table.fillna("-").to_string())
+        print(table.astype(object).fillna("-").to_string())
     if args.csv:
         table.to_csv(args.csv, encoding="utf-8-sig")
     return 0

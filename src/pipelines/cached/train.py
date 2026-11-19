@@ -23,6 +23,7 @@ from ..disk.params import (
     get_global_config,
     get_preprocess_config,
     get_train_config,
+    params_path,
 )
 from ..disk.seed import set_seed
 from ..disk.train import MODEL_CONFIGS, get_rfdetr_train_cfg
@@ -218,7 +219,7 @@ def train(args: argparse.Namespace) -> Path:
                 "environment.json": environment_info(),
                 "rfdetr_train_config.json": rfdetr_train_cfg.model_dump(mode="json"),
             },
-            extra_files=(Path("params.yaml"),),
+            extra_files=(params_path(),),
         )
 
         _, _, augment_prob = augmentation_settings(cached_cfg)

@@ -19,7 +19,7 @@ from ..test.confidence_sweep import sweep_confidence_thresholds
 from ..test.evaluation import IOU_THRESHOLD
 from ..test.image_evaluation import door_evaluation_unavailable, reconstruct_predictions
 from ..test.predictions import predict_dataset
-from ..test.run_test import get_latest_model_weights
+from ..test.run_test import get_latest_training
 from ..test.thresholds import select_thresholds
 from ..test.tile_evaluation import ground_truth_by_image
 
@@ -253,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Original COCO dataset directory for image category alignment; repeat for multiple sources.",
     )
     args = parser.parse_args(argv)
-    weights = args.weights if args.weights is not None else Path(get_latest_model_weights())
+    weights = args.weights if args.weights is not None else Path(get_latest_training())
     if not weights.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {weights}")
     data_cfg = get_data_config()

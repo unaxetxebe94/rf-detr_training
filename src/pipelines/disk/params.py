@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,8 +99,12 @@ class CachedConfig:
         return self.cache_dir or Path(training_dataset_path) / "_tile_cache"
 
 
-def read_params(path: str = r"./params.yaml"):
-    with open(path, encoding="utf-8") as f:
+def params_path() -> Path:
+    return Path(os.environ.get("RFDETR_PARAMS_FILE") or "params.yaml")
+
+
+def read_params(path: str | Path | None = None):
+    with open(params_path() if path is None else path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 

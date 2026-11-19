@@ -121,9 +121,9 @@ def main(argv=None):
         raise FileNotFoundError(args.image)
     weights = args.weights
     if weights is None:
-        from ..test.run_test import get_latest_model_weights
+        from ..test.run_test import get_latest_training
 
-        weights = Path(get_latest_model_weights())
+        weights = Path(get_latest_training())
     if not weights.is_file():
         raise FileNotFoundError(weights)
     model_type = args.model_type or get_global_config().model_type

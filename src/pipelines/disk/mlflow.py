@@ -19,7 +19,7 @@ from mlflow import ActiveRun
 
 from .params import get_global_config, get_preprocess_config
 
-_MLFLOW_DIR = Path(__file__).resolve().parents[2] / "mlflow"
+_MLFLOW_DIR = Path(__file__).resolve().parents[3] / "mlflow"
 # MLFLOW_TRACKING_URI (e.g. sqlite:///mlflow.db or a server) replaces the file store, which MLflow deprecates.
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI") or _MLFLOW_DIR.as_uri()
 

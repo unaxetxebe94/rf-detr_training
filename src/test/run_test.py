@@ -41,10 +41,9 @@ def _parse_args(argv):
     return parser.parse_args(argv)
 
 
-def get_latest_model_weights() -> str:
+def get_latest_training() -> str:
     training_dir = Path("trainings")
     latest_date = datetime(1, 1, 1)
-    latest_model = None
     if not training_dir.is_dir():
         raise FileNotFoundError(f"Training directory not found: {training_dir}")
     for directory in training_dir.iterdir():
@@ -57,19 +56,23 @@ def get_latest_model_weights() -> str:
             continue
         if date > latest_date:
             latest_date = date
-            latest_model = directory / "checkpoint_best_total.pth"
-    if latest_model is None or not latest_model.is_file():
+    if latest_date == datetime(1, 1, 1):
         raise FileNotFoundError(
-            f"Best-total checkpoint not found in the latest training directory: {latest_model}"
+            f"Best-total checkpoint not found in the latest training directory: {latest_date}"
         )
-    return str(latest_model)
+    return str(training_dir / latest_date.strftime("%Y-%m-%d_%H-%M-%S"))
 
 
 def run_test(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    weights = args.weights if args.weights is not None else Path(get_latest_model_weights())
-    if not weights.is_file():
-        raise FileNotFoundError(f"No existe el checkpoint: {weights}")
+    latest_training_path = Path(get_latest_training()) 
+    try:
+        weights = args.weights if args.weights is not None else latest_training_path / "checkpoint_best_total.pth"
+        if not weights.is_file():
+            raise FileNotFoundError(f"No existe el checkpoint: {weights}")
+    except FileNotFoundError as err:
+        print(err)
+        return 1
     with mlflow_run("test"):
         cfg = get_global_config()
         data_cfg = get_data_config()
@@ -90,7 +93,7 @@ def run_test(argv: list[str] | None = None) -> int:
         log_dict_params({"test/dataset_dir": str(data_cfg.training_dataset_path.resolve())})
         evaluate_dataset(
             model, data_cfg.training_dataset_path / "test",
-            data_cfg.training_dataset_path / "test_output",
+            latest_training_path / "test_output",
             global_threshold=args.global_threshold,
             train_annotations=train_annotations,
             original_data_dirs=tuple(data_cfg.sources),
