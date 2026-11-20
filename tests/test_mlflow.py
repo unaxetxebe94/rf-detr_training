@@ -136,3 +136,25 @@ def test_test_entry_closes_failed_run(store, tmp_path, monkeypatch):
     assert len(saved) == 1
     assert saved[0].info.status == "FAILED"
     assert mlflow.active_run() is None
+
+
+def test_link_training_run_carries_history_on_resume(tmp_path):
+    import mlflow
+
+    from src.pipelines.disk.mlflow import link_training_run
+
+    mlflow.set_tracking_uri((tmp_path / "store").as_uri())
+    mlflow.set_experiment("resume-test")
+    output_dir = tmp_path / "training"
+    with mlflow.start_run() as first:
+        link_training_run(output_dir, resumed=False)
+        mlflow.log_metric("val/tile/detection/map50", 0.1, step=0)
+        mlflow.log_metric("val/tile/detection/map50", 0.2, step=1)
+    with mlflow.start_run() as second:
+        assert link_training_run(output_dir, resumed=True) == first.info.run_id
+
+    client = mlflow.MlflowClient()
+    history = client.get_metric_history(second.info.run_id, "val/tile/detection/map50")
+    assert [(m.step, m.value) for m in history] == [(0, 0.1), (1, 0.2)]
+    assert client.get_run(second.info.run_id).data.tags["resumed_from_run_id"] == first.info.run_id
+    assert (output_dir / "mlflow_run_id.txt").read_text() == second.info.run_id

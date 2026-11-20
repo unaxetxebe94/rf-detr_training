@@ -131,6 +131,44 @@ def initialize_mlflow():
     )
 
 
+RUN_ID_FILE = "mlflow_run_id.txt"
+
+
+def link_training_run(output_dir: Path, resumed: bool) -> str | None:
+    """Record the active run id in ``output_dir``; on resume, carry over the previous run's history.
+
+    MLflow params are immutable, so a resumed training logs into a new run instead of reopening
+    the old one. The new run is tagged ``resumed_from_run_id`` and gets a copy of every metric
+    history of the previous run, so the curves stay complete in a single run.
+    """
+    run = mlflow.active_run()
+    if run is None:
+        return None
+    path = Path(output_dir) / RUN_ID_FILE
+    previous = path.read_text(encoding="utf-8").strip() if resumed and path.is_file() else None
+    if previous and previous != run.info.run_id:
+        client = mlflow.MlflowClient()
+        try:
+            old = client.get_run(previous)
+        except Exception as error:  # noqa: BLE001 - the previous run may live in another store
+            warnings.warn(f"No se pudo leer la run previa {previous}: {error}", stacklevel=2)
+        else:
+            from mlflow.entities import Metric
+
+            metrics = [
+                Metric(m.key, m.value, m.timestamp, m.step)
+                for key in old.data.metrics
+                for m in client.get_metric_history(previous, key)
+            ]
+            for start in range(0, len(metrics), 1000):
+                client.log_batch(run.info.run_id, metrics=metrics[start:start + 1000])
+            mlflow.set_tag("resumed_from_run_id", previous)
+            client.set_tag(previous, "resumed_in_run_id", run.info.run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(run.info.run_id, encoding="utf-8")
+    return previous
+
+
 @contextmanager
 def mlflow_run(stage: str):
     """Close only runs created here; nested pipeline stages reuse their owner."""

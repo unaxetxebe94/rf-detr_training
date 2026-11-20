@@ -16,7 +16,7 @@ import mlflow
 
 from ...preprocess.tile_creation import TILE_SIZE_MAPPER
 from ..disk.logger import get_logger
-from ..disk.mlflow import attach_mlflow, log_dict_params, mlflow_run, set_run_name
+from ..disk.mlflow import attach_mlflow, link_training_run, log_dict_params, mlflow_run, set_run_name
 from ..disk.params import (
     get_cached_config,
     get_data_config,
@@ -167,6 +167,7 @@ def train(args: argparse.Namespace) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with mlflow_run("train"):
+        link_training_run(output_dir, resumed=resume_checkpoint is not None)
         view, prepare_stats = prepare(full=args.full, skip_update=args.skip_update, deep_verify=args.deep_verify)
         empty = [split for split in ("train", "valid") if not view.summary.get(f"{split}/tiles")]
         if empty:
