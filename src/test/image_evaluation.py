@@ -69,6 +69,23 @@ def reconstruct_predictions(coco, predictions_by_tile):
     }
 
 
+def source_ground_truth(coco):
+    """Original image id -> [(bbox, category_id)] in original-image coordinates."""
+    return {
+        source["id"]: [(ann["bbox"], ann["category_id"]) for ann in source["annotations"]]
+        for source in coco["source_images"]
+    }
+
+
+def predictions_by_source(coco, predictions_by_tile):
+    """Tile predictions grouped per original image, without moving the boxes (for door-level scores)."""
+    grouped = {source["id"]: [] for source in coco["source_images"]}
+    for tile in coco["images"]:
+        if tile.get("source_image_id") in grouped:
+            grouped[tile["source_image_id"]].extend(predictions_by_tile.get(tile["id"], []))
+    return grouped
+
+
 def evaluate_images(coco, predictions_by_tile, test_dir, output_dir, iou_threshold=0.3):
     predictions = reconstruct_predictions(coco, predictions_by_tile)
     counts = dict.fromkeys(("TP", "FP", "FN", "TN"), 0)

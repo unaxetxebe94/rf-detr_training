@@ -133,3 +133,54 @@ def binary_metrics(counts):
         "Specificity": round(tn / (tn + fp), 4) if tn + fp else 0.0,
         **{f"Total {key}": counts[key] for key in ("TP", "FP", "FN", "TN")},
     }
+
+
+def per_class_detection_metrics(predictions, ground_truth, category_names, iou_threshold=0.3):
+    """``detection_metrics`` restricted to each class (predictions and ground truth of that class only)."""
+    return {
+        name: detection_metrics(
+            [pred for pred in predictions if pred[2] == label],
+            {image_id: [gt for gt in gts if gt[1] == label] for image_id, gts in ground_truth.items()},
+            iou_threshold,
+        )
+        for label, name in sorted(category_names.items())
+    }
+
+
+def _score_metrics(labels, scores):
+    """AUROC/AP of a presence score; empty when only one class is present."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
+    if len(set(labels)) < 2:
+        return {}
+    return {
+        "AUROC": round(float(roc_auc_score(labels, scores)), 4),
+        "AP": round(float(average_precision_score(labels, scores)), 4),
+    }
+
+
+def presence_metrics(ground_truth, predictions_by_image, category_names, scores_by_image=None):
+    """Defective-vs-normal metrics per tile/door: overall (any class) and one-vs-rest per class.
+
+    ``ground_truth``: id -> [(box, label)]; ``predictions_by_image``: id -> [(box, label, score)] already
+    thresholded (decides positives); ``scores_by_image``: id -> [(box, label, score)] before the
+    threshold, used for AUROC/AP (defaults to ``predictions_by_image``).
+    """
+    scores_by_image = predictions_by_image if scores_by_image is None else scores_by_image
+    groups = {"overall": None, **{name: label for label, name in sorted(category_names.items())}}
+    results = {}
+    for group, label in groups.items():
+        counts = dict.fromkeys(("TP", "FP", "FN", "TN"), 0)
+        truths, scores = [], []
+        for image_id, gts in ground_truth.items():
+            def matches(item):
+                return label is None or item[1] == label
+            truth = any(matches(gt) for gt in gts)
+            predicted = any(matches(pred) for pred in predictions_by_image.get(image_id, []))
+            counts[("TP" if predicted else "FN") if truth else ("FP" if predicted else "TN")] += 1
+            truths.append(int(truth))
+            scores.append(max(
+                (pred[2] for pred in scores_by_image.get(image_id, []) if matches(pred)), default=0.0,
+            ))
+        results[group] = {**binary_metrics(counts), **_score_metrics(truths, scores)}
+    return results

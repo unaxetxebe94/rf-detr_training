@@ -40,17 +40,34 @@ El pipeline (`run_pipeline.ps1` / `run_pipeline.sh`) ya ejecuta todas las etapas
 
 ### MLflow
 
-El pipeline guarda experimentos y runs en el almacén de archivos `mlflow` de la raíz del proyecto. Imprime su URI absoluta y el `run_id`; el logger de entrenamiento y el test comparten esa run. Una ejecución correcta termina como `FINISHED` y un error como `FAILED`. También se registran los parámetros efectivos y las rutas del entrenamiento y del checkpoint.
+Todos los entrenamientos del proyecto B1375 (RF-DETR, clasificadores y Dinomaly) registran en el **mismo servidor de MLflow**: `http://127.0.0.1:5001` (la variable de entorno `MLFLOW_TRACKING_URI` lo sustituye). Antes de abrir la run se comprueba `GET /health`; si el servidor no responde se avisa y se usa el almacén de ficheros local `mlflow/` de este repo (la run queda con la etiqueta `tracking_fallback=True`).
 
-Abre la interfaz **desde la raíz del repositorio**, indicando ese mismo backend:
+El servidor actual se lanzó desde la raíz de este repo sobre ese mismo almacén de ficheros (los artefactos de los experimentos nuevos se guardan en `mlartifacts/`, ignorado por git):
 
 ```powershell
 $env:MLFLOW_ALLOW_FILE_STORE = "true"
-$trackingUri = uv run python -c "from pathlib import Path; print((Path.cwd() / 'mlflow').as_uri())"
-uv run mlflow ui --backend-store-uri "$trackingUri"
+uv run mlflow ui --backend-store-uri file:///G:/B1375/rf-detr_training/mlflow --port 5001
 ```
 
-No uses `cd .\mlflow; uv run mlflow ui` sin backend: puede abrir una base SQLite distinta, mostrando solo `Default` o experimentos sin los runs existentes. No hace falta migrar ni borrar las bases SQLite para consultar los runs del almacén de archivos. Para usar otro backend (p. ej. `sqlite:///mlflow.db` o un servidor, recomendable para un historial diario largo) define la variable de entorno `MLFLOW_TRACKING_URI`.
+- **Experimentos**: uno por familia de modelo y grupo de caras: `rfdetr/<experiment-name>` (p. ej. `rfdetr/top-bottom`), `classifier/<caras>`, `dinomaly/<caras>`. Los experimentos antiguos (`top-bottom-rfdetr`, ...) se conservan.
+- **Etiquetas comunes**: `model_family`, `face_group`, `config_path`, `git_commit`, `git_branch`, `git_dirty`, `dataset`, `tracking_fallback`, además de `stage`/`stage_<etapa>`, `train_status` y `test_status`.
+- El logger de entrenamiento y el test comparten la run. Una ejecución correcta termina como `FINISHED` y un error como `FAILED`.
+
+#### Esquema de métricas (común a las tres familias)
+
+`{split}/{nivel}/[class/<clase>/]<métrica>` con `split` = `val` (por epoch) o `test` (final), `nivel` = `tile` o `image` (puerta original: los tiles se recomponen en la imagen completa) y `<clase>` en minúsculas con `_` (p. ej. `short_lipping`).
+
+| Clave | Significado |
+|---|---|
+| `test/{tile,image}/{precision,recall,f1,accuracy,specificity,tp,fp,fn,tn,auroc,ap}` | Defectuoso vs. nominal por tile / por puerta (positivo si hay alguna detección tras el umbral calibrado; `auroc`/`ap` con la confianza máxima). |
+| `test/{tile,image}/class/<clase>/...` | Igual, uno-contra-el-resto para cada clase (más `threshold`, el umbral usado). |
+| `test/{tile,image}/detection/{map50,map50_95,mar50,mar50_95,precision,recall,f1,tp,fp,fn}` | Métricas de detección por instancia (cajas emparejadas por IoU ≥ 0.3). |
+| `test/{tile,image}/class/<clase>/detection/...` | Las mismas, por clase. |
+| `val/tile/detection/{map50,map50_95,map75,mar,f1,precision,recall}` y `val/tile/class/<clase>/detection/map50_95` | Validación de RF-DETR en cada epoch (`step` = epoch). |
+
+Las claves antiguas (`tile/*`, `image/binary/*`, `image/detection/*`, `val/mAP_50`, ...) se siguen registrando. Artefactos: `evaluation/metrics.json` y `evaluation/per_class_metrics.csv` (una fila por nivel y clase), además de `run_info/` en el pipeline cached.
+
+Los tests usan siempre un almacén temporal (`tests/conftest.py`) y nunca escriben en el servidor.
 
 ## Archivos importantes
 

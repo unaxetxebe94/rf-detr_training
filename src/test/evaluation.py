@@ -4,13 +4,49 @@ from pathlib import Path
 
 from ..preprocess.annotations import read_annotations
 from .categories import align_categories, align_door_categories, validate_checkpoint_categories
-from .image_evaluation import door_evaluation_unavailable, evaluate_images, reconstruct_predictions
+from .image_evaluation import (
+    door_evaluation_unavailable,
+    evaluate_images,
+    predictions_by_source,
+    reconstruct_predictions,
+    source_ground_truth,
+)
+from .metrics import per_class_detection_metrics, presence_metrics
 from .predictions import DEFAULT_THRESHOLD, RAW_THRESHOLD, filter_predictions, predict_dataset
-from .reporting import log_results_to_mlflow, save_results
+from .reporting import log_artifacts_to_mlflow, log_results_to_mlflow, save_per_class_csv, save_results
 from .thresholds import select_thresholds
 from .tile_evaluation import evaluate_tiles, ground_truth_by_image
 
 IOU_THRESHOLD = 0.3
+
+
+def _flatten(predictions_by_image):
+    return [
+        (image_id, *prediction)
+        for image_id, predictions in predictions_by_image.items()
+        for prediction in predictions
+    ]
+
+
+def class_level_metrics(coco, filtered_predictions, raw_predictions, category_names, doors: bool) -> dict:
+    """Defective-vs-normal (overall and per class) and per-class detection metrics per tile and per door."""
+    tile_truth = ground_truth_by_image(coco)
+    results = {
+        "tile_presence": presence_metrics(tile_truth, filtered_predictions, category_names, raw_predictions),
+        "tile_detection_per_class": per_class_detection_metrics(
+            _flatten(filtered_predictions), tile_truth, category_names, IOU_THRESHOLD,
+        ),
+    }
+    if doors:
+        door_truth = source_ground_truth(coco)
+        door_predictions = reconstruct_predictions(coco, filtered_predictions)
+        results["image_presence"] = presence_metrics(
+            door_truth, door_predictions, category_names, predictions_by_source(coco, raw_predictions),
+        )
+        results["image_detection_per_class"] = per_class_detection_metrics(
+            _flatten(door_predictions), door_truth, category_names, IOU_THRESHOLD,
+        )
+    return results
 
 
 def _calibrate_thresholds(model, test_dir, valid_dir, training_categories):
@@ -96,6 +132,11 @@ def evaluate_dataset(model, test_dir: Path, output_dir: Path,
         )
     else:
         results["door_evaluation_skip_reason"] = door_skip_reason
+    results.update(class_level_metrics(
+        coco, filtered_predictions, raw_predictions, category_names, doors=door_skip_reason is None,
+    ))
     log_results_to_mlflow(results)
     save_results(results, output_dir)
+    save_per_class_csv(results, output_dir)
+    log_artifacts_to_mlflow(output_dir)
     return results
