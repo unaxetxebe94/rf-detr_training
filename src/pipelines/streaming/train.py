@@ -14,7 +14,7 @@ from pathlib import Path
 from rfdetr.training import RFDETRModelModule, build_trainer
 
 from ..disk.logger import get_logger
-from ..disk.mlflow import get_mlflow_logger, log_dict_params, mlflow_run
+from ..disk.mlflow import attach_mlflow, log_dict_params, mlflow_run
 from ..disk.params import (
     get_data_config,
     get_global_config,
@@ -64,7 +64,7 @@ def _train(output_dir: Path | None) -> Path:
     log_dict_params({"training/output_dir": str(output_dir.resolve())})
 
     trainer = build_trainer(rfdetr_train_cfg, model_config)
-    trainer.loggers = [*trainer.loggers, get_mlflow_logger()]
+    attach_mlflow(trainer)
     module = RFDETRModelModule(model_config, rfdetr_train_cfg)
     data_module = StreamingDataModule(
         model_config, rfdetr_train_cfg, plan,

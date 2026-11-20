@@ -3,11 +3,14 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
-# El proyecto usa el backend de ficheros (file:./mlflow); MLflow 3.18 lo exige explícito.
+# El fallback local usa el backend de ficheros (file:./mlflow); MLflow 3.18 lo exige explícito.
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
 import datetime
 import re
+import subprocess
+import urllib.request
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -17,11 +20,16 @@ from pytorch_lightning.loggers import MLFlowLogger
 import mlflow
 from mlflow import ActiveRun
 
-from .params import get_global_config, get_preprocess_config
+from .params import get_data_config, get_global_config, get_preprocess_config, params_path
 
-_MLFLOW_DIR = Path(__file__).resolve().parents[3] / "mlflow"
-# MLFLOW_TRACKING_URI (e.g. sqlite:///mlflow.db or a server) replaces the file store, which MLflow deprecates.
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI") or _MLFLOW_DIR.as_uri()
+_REPO_DIR = Path(__file__).resolve().parents[3]
+_MLFLOW_DIR = _REPO_DIR / "mlflow"
+# Servidor central compartido por RF-DETR, clasificadores y Dinomaly (MLFLOW_TRACKING_URI lo sustituye).
+DEFAULT_TRACKING_URI = "http://127.0.0.1:5001"
+MODEL_FAMILY = "rfdetr"
+# Se resuelve en la primera run (ver resolve_tracking_uri); los tests pueden fijarlo directamente.
+MLFLOW_TRACKING_URI: str | None = None
+_TRACKING_FALLBACK = False
 
 # MLflow solo acepta en métricas y params letras, números y "_/. - ": lo demás lo reemplazamos.
 _INVALID_KEY_CHARS = re.compile(r"[^\w/. \-]", re.UNICODE)
@@ -38,26 +46,87 @@ class MLFlowConfig:
 _MLFLOW_CFG: MLFlowConfig | None = None
 
 
+def _server_is_healthy(uri: str, timeout: float = 3.0) -> bool:
+    try:
+        with urllib.request.urlopen(f"{uri.rstrip('/')}/health", timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def resolve_tracking_uri() -> str:
+    """MLFLOW_TRACKING_URI or the central server; falls back to ./mlflow if the server does not answer."""
+    global MLFLOW_TRACKING_URI, _TRACKING_FALLBACK
+    if MLFLOW_TRACKING_URI is not None:
+        return MLFLOW_TRACKING_URI
+    uri = os.environ.get("MLFLOW_TRACKING_URI") or DEFAULT_TRACKING_URI
+    if uri.startswith(("http://", "https://")) and not _server_is_healthy(uri):
+        fallback = _MLFLOW_DIR.as_uri()
+        warnings.warn(
+            f"El servidor de MLflow {uri} no responde; se usa el almacenamiento local {fallback}.",
+            stacklevel=2,
+        )
+        uri, _TRACKING_FALLBACK = fallback, True
+    MLFLOW_TRACKING_URI = uri
+    return uri
+
+
+def experiment_name(name: str | None = None) -> str:
+    """Experiments are grouped per model family: ``rfdetr/<experiment-name>``."""
+    name = name or get_global_config().experiment_name
+    return name if name.startswith(f"{MODEL_FAMILY}/") else f"{MODEL_FAMILY}/{name}"
+
+
+def _git(*args: str) -> str | None:
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=_REPO_DIR, capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip()
+    except Exception:
+        return None
+
+
+def standard_tags(face_group: str) -> dict[str, str]:
+    """Tags shared by every model family (rfdetr, classifier, dinomaly) on the central server."""
+    try:
+        dataset = str(get_data_config().training_dataset_path)
+    except Exception:
+        dataset = ""
+    status = _git("status", "--porcelain")
+    return {
+        "model_family": MODEL_FAMILY,
+        "face_group": face_group,
+        "config_path": str(params_path().resolve()),
+        "git_commit": _git("rev-parse", "HEAD") or "",
+        "git_branch": _git("rev-parse", "--abbrev-ref", "HEAD") or "",
+        "git_dirty": str(bool(status)) if status is not None else "",
+        "dataset": dataset,
+        "tracking_fallback": str(_TRACKING_FALLBACK),
+    }
+
+
 def initialize_mlflow():
     global _MLFLOW_CFG
     global_cfg = get_global_config()
 
     if mlflow.active_run() is not None:
         return
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    experiment = mlflow.set_experiment(global_cfg.experiment_name)
-    run = mlflow.start_run(run_name=get_run_name())
+    uri = resolve_tracking_uri()
+    name = experiment_name(global_cfg.experiment_name)
+    mlflow.set_tracking_uri(uri)
+    experiment = mlflow.set_experiment(name)
+    run = mlflow.start_run(run_name=get_run_name(), tags=standard_tags(global_cfg.experiment_name))
 
     _MLFLOW_CFG = MLFlowConfig(
-        uri=MLFLOW_TRACKING_URI,
-        experiment_name=global_cfg.experiment_name,
+        uri=uri,
+        experiment_name=name,
         experiment=experiment,
         run_id=run.info.run_id,
         run_name=run.info.run_name,
         active_run=run
     )
     print(
-        f"MLflow: {MLFLOW_TRACKING_URI}; experimento={experiment.name}; "
+        f"MLflow: {uri}; experimento={experiment.name}; "
         f"run_id={run.info.run_id}"
     )
 
@@ -114,12 +183,20 @@ def get_mlflow_logger() -> MLFlowLogger:
         initialize_mlflow()
     run = mlflow.active_run()
     return MLFlowLogger(
-        experiment_name=get_global_config().experiment_name,
+        experiment_name=experiment_name(),
         run_name=run.info.run_name,
         run_id=run.info.run_id,
-        tracking_uri=MLFLOW_TRACKING_URI,
+        tracking_uri=resolve_tracking_uri(),
         save_dir=str(_MLFLOW_DIR),
     )
+
+
+def attach_mlflow(trainer) -> None:
+    """Add the run's Lightning logger and the shared ``val/tile/...`` metric keys to an RF-DETR trainer."""
+    from .standard_metrics import StandardValMetrics
+
+    trainer.loggers = [*trainer.loggers, get_mlflow_logger()]
+    trainer.callbacks.append(StandardValMetrics())
 
 
 def _sanitize_key(name: str) -> str:

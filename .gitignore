@@ -40,4 +40,5 @@ test_*
 # mlflow
 mlflow/
 mlflow*/
+mlartifacts/
 *.db

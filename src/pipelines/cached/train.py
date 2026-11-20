@@ -16,7 +16,7 @@ import mlflow
 
 from ...preprocess.tile_creation import TILE_SIZE_MAPPER
 from ..disk.logger import get_logger
-from ..disk.mlflow import get_mlflow_logger, log_dict_params, mlflow_run, set_run_name
+from ..disk.mlflow import attach_mlflow, log_dict_params, mlflow_run, set_run_name
 from ..disk.params import (
     get_cached_config,
     get_data_config,
@@ -224,7 +224,7 @@ def train(args: argparse.Namespace) -> Path:
 
         _, _, augment_prob = augmentation_settings(cached_cfg)
         trainer = build_trainer(rfdetr_train_cfg, model_config)
-        trainer.loggers = [*trainer.loggers, get_mlflow_logger()]
+        attach_mlflow(trainer)
         module = RFDETRModelModule(model_config, rfdetr_train_cfg)
         data_module = CachedDataModule(
             model_config, rfdetr_train_cfg, view,

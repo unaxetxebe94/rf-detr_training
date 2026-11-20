@@ -43,7 +43,7 @@ def test_logger_and_evaluation_share_persistent_run(store, tmp_path, monkeypatch
                 "threshold_calibration": {"global_threshold": 0.5},
             }) == run.info.run_id
         assert mlflow.active_run().info.run_id == run.info.run_id
-    experiment = store.get_experiment_by_name("right")
+    experiment = store.get_experiment_by_name("rfdetr/right")
     runs = store.search_runs([experiment.experiment_id])
     assert len(runs) == 1
     saved = runs[0]
@@ -69,7 +69,7 @@ def test_independent_stage_closes_its_run(store, fails):
     else:
         execute()
     assert mlflow.active_run() is None
-    experiment = store.get_experiment_by_name("right")
+    experiment = store.get_experiment_by_name("rfdetr/right")
     runs = store.search_runs([experiment.experiment_id])
     assert len(runs) == 1
     assert runs[0].info.status == ("FAILED" if fails else "FINISHED")
@@ -87,7 +87,7 @@ def test_pipeline_uses_its_checkpoint_and_records_failure(store, fails):
             else:
                 pipeline()
             evaluate.assert_called_once_with(["--weights", str(checkpoint)])
-    experiment = store.get_experiment_by_name("right")
+    experiment = store.get_experiment_by_name("rfdetr/right")
     runs = store.search_runs([experiment.experiment_id])
     assert len(runs) == 1
     assert runs[0].info.status == ("FAILED" if fails else "FINISHED")
@@ -111,13 +111,13 @@ def test_training_saves_categories_and_returns_its_checkpoint(store, tmp_path, m
     monkeypatch.setattr(train, "RFDETRModelModule", Mock())
     monkeypatch.setattr(train, "RFDETRDataModule", Mock())
     output = tmp_path / "training"
-    trainer = SimpleNamespace(loggers=[])
+    trainer = SimpleNamespace(loggers=[], callbacks=[])
     trainer.fit = Mock(side_effect=lambda *args: (output / "checkpoint_best_total.pth").touch())
     monkeypatch.setattr(train, "build_trainer", Mock(return_value=trainer))
     checkpoint = train.main(output)
     assert checkpoint == output / "checkpoint_best_total.pth"
     assert json.loads((output / "training_categories.json").read_text()) == {"categories": categories}
-    saved = store.search_runs([store.get_experiment_by_name("right").experiment_id])[0]
+    saved = store.search_runs([store.get_experiment_by_name("rfdetr/right").experiment_id])[0]
     assert saved.data.params["training/checkpoint"] == str(checkpoint.resolve())
     assert saved.info.status == "FINISHED"
 
@@ -132,7 +132,7 @@ def test_test_entry_closes_failed_run(store, tmp_path, monkeypatch):
     with patch("rfdetr.RFDETRLarge", side_effect=ValueError("invalid checkpoint")):
         with pytest.raises(ValueError, match="invalid checkpoint"):
             evaluation.run_test(["--weights", str(weights)])
-    saved = store.search_runs([store.get_experiment_by_name("right").experiment_id])
+    saved = store.search_runs([store.get_experiment_by_name("rfdetr/right").experiment_id])
     assert len(saved) == 1
     assert saved[0].info.status == "FAILED"
     assert mlflow.active_run() is None

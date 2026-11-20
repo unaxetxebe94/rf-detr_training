@@ -10,7 +10,7 @@ from rfdetr.config import TrainConfig as RFDETRTrainConfig
 from rfdetr.training import RFDETRDataModule, RFDETRModelModule, build_trainer
 
 from .logger import get_logger
-from .mlflow import get_mlflow_logger, log_dict_params, mlflow_run
+from .mlflow import attach_mlflow, log_dict_params, mlflow_run
 from .params import TrainConfig, get_data_config, get_global_config, get_preprocess_config, get_train_config
 from .seed import set_seed
 
@@ -58,6 +58,8 @@ def get_rfdetr_train_cfg(dataset_dir: Path, output_dir: Path, training_params: T
         tensorboard=training_params.tensorboard,
         # "cpu" (the RF-DETR default) silently picks Albumentations once rfdetr[augment] is installed.
         augmentation_backend="torchvision",
+        # Per-class AP each epoch (val/AP/<class>), mirrored to val/tile/class/<class>/... by StandardValMetrics.
+        log_per_class_metrics=True,
         mlflow=False
     )
 
@@ -92,7 +94,7 @@ def _train(output_dir: Path | None) -> Path:
     log_dict_params(rfdetr_train_cfg.model_dump(mode="json"), prefix="train/")
     log_dict_params({"training/output_dir": str(output_dir.resolve())})
     trainer = build_trainer(rfdetr_train_cfg, model_config)
-    trainer.loggers = [*trainer.loggers, get_mlflow_logger()]
+    attach_mlflow(trainer)
 
     module = RFDETRModelModule(model_config, rfdetr_train_cfg)
     data_module = RFDETRDataModule(model_config, rfdetr_train_cfg)

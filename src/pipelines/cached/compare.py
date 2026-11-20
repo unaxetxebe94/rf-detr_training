@@ -10,8 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..disk.mlflow import MLFLOW_TRACKING_URI
-from ..disk.params import get_global_config
+from ..disk.mlflow import experiment_name, resolve_tracking_uri
 
 import mlflow  # noqa: E402  (after ..disk.mlflow, which allows MLflow's file store)
 from mlflow import MlflowClient  # noqa: E402
@@ -71,9 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_tracking_uri(resolve_tracking_uri())
     client = MlflowClient()
-    experiment = args.experiment or get_global_config().experiment_name
+    experiment = args.experiment or experiment_name()
     runs = select_runs(client, experiment, args.runs, args.last)
     if not runs:
         print("No hay entrenamientos que comparar.")
