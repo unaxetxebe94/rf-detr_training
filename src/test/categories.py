@@ -4,7 +4,7 @@ from math import isclose
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from ..preprocess.annotations import group_annotations_by_image, read_annotations
+from ..preprocess.annotations import group_annotations_by_image, read_source_annotations
 
 
 def validate_checkpoint_categories(model, training_categories):
@@ -58,7 +58,7 @@ def align_categories(coco, training_categories):
 def _index_original_images(original_data_dirs):
     originals_by_source, originals_by_name = {}, {}
     for directory in dict.fromkeys(Path(path) for path in original_data_dirs):
-        original = read_annotations(directory / "_annotations.coco.json")
+        original = read_source_annotations(directory)
         categories = {cat["id"]: cat["name"].lower() for cat in original["categories"]}
         annotations = group_annotations_by_image(original)
         for image in original["images"]:
