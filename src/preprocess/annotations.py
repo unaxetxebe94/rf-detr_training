@@ -22,6 +22,39 @@ def read_annotations(path: Path) -> dict:
         return json.load(f)
 
 
+SOURCE_IMAGE_EXTENSIONS = (".tiff", ".tif", ".png", ".jpg", ".jpeg", ".bmp")
+
+
+def resolve_image_file_names(coco: dict, input_dir: Path) -> int:
+    """Point ``file_name`` entries whose file is missing to an existing file with the same stem.
+
+    Annotation exports sometimes reference ``.jpg`` names while the source folder keeps the
+    original ``.tiff`` files. Fixes the names in place (never on disk) and returns how many changed.
+    """
+    input_dir = Path(input_dir)
+    resolved = 0
+    for image in coco.get("images", []):
+        path = input_dir / image["file_name"]
+        if path.is_file():
+            continue
+        for extension in SOURCE_IMAGE_EXTENSIONS:
+            candidate = path.with_suffix(extension)
+            if candidate.is_file():
+                image["file_name"] = candidate.relative_to(input_dir).as_posix()
+                resolved += 1
+                break
+    if resolved:
+        print(f"{input_dir}: {resolved} file_name(s) resolved to an existing file with another extension.")
+    return resolved
+
+
+def read_source_annotations(input_dir: Path) -> dict:
+    """COCO annotations of a raw source folder with missing image extensions resolved."""
+    coco = read_annotations(Path(input_dir) / "_annotations.coco.json")
+    resolve_image_file_names(coco, input_dir)
+    return coco
+
+
 def write_annotations(path: Path, coco: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

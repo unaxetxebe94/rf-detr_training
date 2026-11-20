@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ...preprocess.annotations import SPLITS, clean_annotation_boxes, group_annotations_by_image, read_annotations, validate_coco
+from ...preprocess.annotations import SPLITS, clean_annotation_boxes, group_annotations_by_image, read_source_annotations, validate_coco
 from ...preprocess.augmenter import validate_augmentation_config
 from ...preprocess.class_filter import validate_class_selection
 from ...preprocess.image import open_image
@@ -145,7 +145,7 @@ def build_tile_plan(sources: list[Path], cfg, global_cfg) -> TilePlan:
     sources = [Path(source) for source in sources]
     cocos = []
     for source in sources:
-        coco = read_annotations(source / "_annotations.coco.json")
+        coco = read_source_annotations(source)
         validate_coco(coco)
         cocos.append(coco)
     categories = build_categories(cocos, cfg.classes)

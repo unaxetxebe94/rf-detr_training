@@ -23,6 +23,7 @@ from .annotations import (
     clean_annotation_boxes,
     group_annotations_by_image,
     read_annotations,
+    read_source_annotations,
     remap_used_categories,
     validate_coco,
     write_annotations,
@@ -369,7 +370,7 @@ def process_source(input_dir: Path, output_dir: Path, cfg, global_cfg, *, full: 
     validate_augmentation_config(cfg)
     if not 0 <= cfg.saving_prob <= 1:
         raise ValueError("saving_prob debe estar en [0, 1].")
-    coco = read_annotations(input_dir / "_annotations.coco.json")
+    coco = read_source_annotations(input_dir)
     validate_coco(coco)
     file_names = [image["file_name"] for image in coco["images"]]
     if len(set(file_names)) != len(file_names):

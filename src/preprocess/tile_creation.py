@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, uuid5
 from ..pipelines.disk.params import get_global_config, get_preprocess_config
 from .annotations import (
     group_annotations_by_image,
-    read_annotations,
+    read_source_annotations,
     transform_annotations,
     write_annotations,
 )
@@ -194,9 +194,7 @@ def create_tiles(
         raise ValueError("saving_prob debe estar en [0, 1].")
     input_dir = Path(input_dir) if input_dir is not None else global_cfg.sources[0]
     output_dir = Path(output_dir)
-    coco = annotations if annotations is not None else read_annotations(
-        input_dir / "_annotations.coco.json"
-    )
+    coco = annotations if annotations is not None else read_source_annotations(input_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     if save_source_images:
         (output_dir / "source_images").mkdir(exist_ok=True)

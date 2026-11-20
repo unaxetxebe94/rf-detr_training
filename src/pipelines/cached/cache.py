@@ -24,6 +24,7 @@ from ...preprocess.annotations import (
     clean_annotation_boxes,
     group_annotations_by_image,
     read_annotations,
+    read_source_annotations,
     validate_coco,
 )
 from ...preprocess.image import open_image
@@ -322,7 +323,7 @@ def update_source(input_dir: Path, cache_dir: Path, cfg, global_cfg, cached_cfg,
     """Bring the tile cache of one source up to date and describe its tiles (with annotations) per original."""
     input_dir, cache_dir = Path(input_dir), Path(cache_dir)
     validate_ratios(cfg.train_ratio, cfg.val_ratio, cfg.test_ratio)
-    coco = read_annotations(input_dir / "_annotations.coco.json")
+    coco = read_source_annotations(input_dir)
     validate_coco(coco)
     file_names = [image["file_name"] for image in coco["images"]]
     if len(set(file_names)) != len(file_names):
