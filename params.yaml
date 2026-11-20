@@ -10,7 +10,7 @@ data:
   training-dataset-path: G:\B1375\TRAINING_DATASETS\Top-Right
 
 preprocess:
-  classes: ["short lipping", "broken lipping", "water mark", "damaged face"]  # All defect classes; set a subset of names, e.g. ["scratch", "dent"] (case-insensitive)
+  classes: ["short lipping"]  # All defect classes; set a subset of names, e.g. ["scratch", "dent"] (case-insensitive)
   saving-prob: 1.0  # Solo train: probabilidad por imagen de guardar todos sus tiles; si no, solo los que tienen defectos
   min-retained-dimension-ratio: 0.10  # Descarta anotaciones cortadas si ancho o alto queda por debajo de este ratio
   resize: 0.33
